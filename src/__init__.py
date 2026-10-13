@@ -1,0 +1,1 @@
+"""Modrinth Creator Analytics package."""
