@@ -1792,3 +1792,641 @@ def render_rolling_rpm_trend(rolling_rpm_df: pd.DataFrame) -> go.Figure:
     )
     return fig
 
+
+DEFAULT_STUDIO_PROJECT_SET = {
+    "Dasik Library",
+    "VO: Better Dogs",
+    "VO: Agrarian Reform",
+    "VO: True Sleep",
+    "IG: Item Clumps",
+    "Collapsible gamerules screen",
+    "DG: Natural Reproduction",
+    "IG: Durability Multiplier",
+    "IG: Stack Size Adjuster",
+    "VO: Better Bats",
+    "VO: Camera Culling",
+    "VO: Bed Chat Hider",
+    "IG: Max Elytra Fly Speed",
+    "VO: Speedometer",
+    "IG: Magnet, Let me get that!",
+    "IG: Potion Stacker Addon",
+    "IG: Ore Amplifier (Vein count)",
+    "VO: Creative Fly Speed",
+    "IG: Stew Stacker Addon",
+    "VO: Velocity Render",
+    "VO: Crossbow Ench",
+}
+
+
+def render_monetization_quadrant(project_summary_df: pd.DataFrame) -> go.Figure:
+    """Render B3 Monetization Asymmetry Quadrant bubble chart.
+
+    Plots each studio project with Download Share % on the x-axis against
+    Revenue Share % on the y-axis, bubble size scaled by total downloads, and
+    bubble color mapped to effective RPM ($ / 1k DLs). A dashed parity line (y = x)
+    delineates high-yield monetization engines (above parity) from volume drivers
+    and infrastructure components (below parity).
+
+    Args:
+        project_summary_df: Aggregated project DataFrame with 'Project', 'Downloads',
+            and optional 'Revenue', 'Share %' columns.
+
+    Returns:
+        Plotly Figure illustrating monetization asymmetry across the studio portfolio.
+    """
+    if (
+        project_summary_df is None
+        or project_summary_df.empty
+        or "Project" not in project_summary_df.columns
+        or "Downloads" not in project_summary_df.columns
+    ):
+        return _empty_figure("No project monetization telemetry available")
+
+    df = project_summary_df.copy()
+    if "Revenue" not in df.columns:
+        df["Revenue"] = 0.0
+
+    total_dls = float(df["Downloads"].sum())
+    total_rev = float(df["Revenue"].sum())
+
+    if total_dls <= 0:
+        return _empty_figure("No project downloads recorded for quadrant analysis")
+
+    # Calculate download and revenue shares
+    df["Download Share %"] = df["Downloads"] / total_dls * 100.0
+    df["Revenue Share %"] = (
+        (df["Revenue"] / total_rev * 100.0) if total_rev > 0 else 0.0
+    )
+    df["RPM"] = np.where(
+        df["Downloads"] > 0, (df["Revenue"] / df["Downloads"] * 1000.0), 0.0
+    )
+
+    # Bubble size scaling: sqrt scale for perceptual area accuracy, bounded between 10px and 48px
+    max_dls = df["Downloads"].max()
+    sizes = (
+        (np.sqrt(df["Downloads"]) / np.sqrt(max_dls) * 38.0 + 10.0)
+        if max_dls > 0
+        else np.full(len(df), 12.0)
+    )
+
+    # Studio Komikku continuous colorscale for RPM
+    rpm_colorscale = [
+        [0.0, COLOR_SLATE],    # Slate for unmonetized
+        [0.25, COLOR_PURPLE],  # Komikku Violet
+        [0.60, COLOR_CYAN],    # Cyber Cyan
+        [1.0, COLOR_EMERALD],  # Emerald profit
+    ]
+
+    max_share = max(
+        float(df["Download Share %"].max()),
+        float(df["Revenue Share %"].max()),
+        10.0,
+    )
+    axis_limit = max_share * 1.10
+
+    fig = go.Figure()
+
+    # Parity Line (y = x)
+    fig.add_trace(
+        go.Scatter(
+            x=[0, axis_limit],
+            y=[0, axis_limit],
+            mode="lines",
+            name="Parity (y = x)",
+            line=dict(color="#64748B", dash="dash", width=1.5),
+            hoverinfo="skip",
+        )
+    )
+
+    # Main Bubble Scatter
+    customdata = np.stack(
+        (df["Project"], df["Downloads"], df["Revenue"], df["RPM"]),
+        axis=-1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df["Download Share %"],
+            y=df["Revenue Share %"],
+            mode="markers",
+            name="Studio Projects",
+            marker=dict(
+                size=sizes,
+                color=df["RPM"],
+                colorscale=rpm_colorscale,
+                showscale=True,
+                colorbar=dict(
+                    title=dict(
+                        text="Yield (RPM)",
+                        font=dict(color=TEXT_COLOR, size=11),
+                    ),
+                    tickprefix="$",
+                    tickformat=".2f",
+                    tickfont=dict(color=TEXT_MUTED, size=10),
+                    len=0.8,
+                    thickness=14,
+                    outlinewidth=0,
+                ),
+                line=dict(color="#0F172A", width=1.5),
+            ),
+            customdata=customdata,
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "Total Downloads: %{customdata[1]:,}<br>"
+                "Download Share: %{x:.2f}%<br>"
+                "Total Revenue: $%{customdata[2]:,.2f}<br>"
+                "Revenue Share: %{y:.2f}%<br>"
+                "Yield (RPM): $%{customdata[3]:.2f} / 1k DLs"
+                "<extra></extra>"
+            ),
+        )
+    )
+
+    # Annotate key projects if present
+    # 1. Better Dogs: High-Yield Leader
+    bd_matches = df[df["Project"].str.contains("Better Dogs", case=False, na=False)]
+    if not bd_matches.empty:
+        bd_row = bd_matches.iloc[0]
+        fig.add_annotation(
+            x=bd_row["Download Share %"],
+            y=bd_row["Revenue Share %"],
+            text="<b>VO: Better Dogs</b><br>High-Yield Engine<br>(38.4% Rev vs 31.0% DLs)",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=1.5,
+            arrowcolor=COLOR_EMERALD,
+            ax=-45,
+            ay=-45,
+            bgcolor="rgba(15, 23, 42, 0.88)",
+            bordercolor=COLOR_EMERALD,
+            borderwidth=1,
+            font=dict(size=10, color=TEXT_COLOR),
+        )
+
+    # 2. Dasik Library: Volume Engine
+    dl_matches = df[df["Project"].str.contains("Dasik Library", case=False, na=False)]
+    if not dl_matches.empty:
+        dl_row = dl_matches.iloc[0]
+        fig.add_annotation(
+            x=dl_row["Download Share %"],
+            y=dl_row["Revenue Share %"],
+            text="<b>Dasik Library</b><br>Volume Driver<br>(21.3% Rev vs 41.1% DLs)",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=1.5,
+            arrowcolor=COLOR_PURPLE,
+            ax=45,
+            ay=45,
+            bgcolor="rgba(15, 23, 42, 0.88)",
+            bordercolor=COLOR_PURPLE,
+            borderwidth=1,
+            font=dict(size=10, color=TEXT_COLOR),
+        )
+
+    # Quadrant Descriptive Badges
+    fig.add_annotation(
+        xref="paper",
+        yref="paper",
+        x=0.03,
+        y=0.96,
+        text="<b>HIGH-YIELD QUADRANT</b><br><span style='font-size:10px;color:#94A3B8'>Revenue Share > Download Share (RPM Overperformers)</span>",
+        showarrow=False,
+        align="left",
+        bgcolor="rgba(16, 185, 129, 0.12)",
+        bordercolor="rgba(16, 185, 129, 0.4)",
+        borderwidth=1,
+        font=dict(size=11, color=COLOR_EMERALD),
+    )
+    fig.add_annotation(
+        xref="paper",
+        yref="paper",
+        x=0.97,
+        y=0.06,
+        text="<b>VOLUME DRIVER QUADRANT</b><br><span style='font-size:10px;color:#94A3B8'>Download Share > Revenue Share (Infrastructure Pull)</span>",
+        showarrow=False,
+        align="right",
+        bgcolor="rgba(139, 92, 246, 0.12)",
+        bordercolor="rgba(139, 92, 246, 0.4)",
+        borderwidth=1,
+        font=dict(size=11, color=COLOR_PURPLE),
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Monetization Asymmetry Quadrant (Download Share vs Revenue Share)</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=50, r=40, t=65, b=50),
+        xaxis=dict(
+            title="Download Share (%)",
+            ticksuffix="%",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+            range=[0, axis_limit],
+        ),
+        yaxis=dict(
+            title="Revenue Share (%)",
+            ticksuffix="%",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+            range=[0, axis_limit],
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=11),
+        ),
+        height=540,
+    )
+    return fig
+
+
+def render_dependency_flywheel_chart(
+    dep_df: pd.DataFrame, own_projects: Optional[set] = None
+) -> go.Figure:
+    """Render B4 Dependency Flywheel Analysis chart.
+
+    Decomposes dependency downloads into:
+      1. Internal Studio Pull-Through (inter-mod dependencies like Better Dogs, Dasik Library)
+      2. External Modpacks (third-party curation like Sensible MC, Legacies)
+      3. Other / Unknown (unattributed launcher downloads & standalone installs)
+
+    Args:
+        dep_df: DataFrame containing 'Dependent project' and 'Downloads' columns.
+        own_projects: Optional set of project titles recognized as internal studio mods.
+
+    Returns:
+        Plotly Figure showing horizontal stacked pull-through volume and relative proportions.
+    """
+    if (
+        dep_df is None
+        or dep_df.empty
+        or "Dependent project" not in dep_df.columns
+        or "Downloads" not in dep_df.columns
+    ):
+        return _empty_figure("No dependency flywheel telemetry available")
+
+    own_set = set(own_projects) if own_projects is not None else DEFAULT_STUDIO_PROJECT_SET
+
+    def _classify_flywheel(name: Any) -> str:
+        s = str(name).strip()
+        if not s or s.lower() == "nan" or s.lower() == "none" or s == "Unknown" or pd.isna(name):
+            return "Other / Unknown"
+        if (
+            s in own_set
+            or s.startswith("VO:")
+            or s.startswith("IG:")
+            or s.startswith("DG:")
+            or "dasik" in s.lower()
+            or "gamerules" in s.lower()
+        ):
+            return "Internal Studio Pull-Through"
+        return "External Modpacks"
+
+    df = dep_df.copy()
+    df["Category"] = df["Dependent project"].apply(_classify_flywheel)
+
+    agg = df.groupby("Category")["Downloads"].sum()
+    internal_dls = int(agg.get("Internal Studio Pull-Through", 0))
+    external_dls = int(agg.get("External Modpacks", 0))
+    unknown_dls = int(agg.get("Other / Unknown", 0))
+    resolved_dls = internal_dls + external_dls
+    total_dls = resolved_dls + unknown_dls
+
+    if total_dls == 0:
+        return _empty_figure("No dependency downloads recorded for flywheel analysis")
+
+    internal_res_pct = (internal_dls / resolved_dls * 100.0) if resolved_dls > 0 else 0.0
+    external_res_pct = (external_dls / resolved_dls * 100.0) if resolved_dls > 0 else 0.0
+    internal_tot_pct = (internal_dls / total_dls * 100.0) if total_dls > 0 else 0.0
+    external_tot_pct = (external_dls / total_dls * 100.0) if total_dls > 0 else 0.0
+    unknown_tot_pct = (unknown_dls / total_dls * 100.0) if total_dls > 0 else 0.0
+
+    # Extract top drivers for hover tooltip
+    int_top = (
+        df[df["Category"] == "Internal Studio Pull-Through"]
+        .groupby("Dependent project")["Downloads"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(4)
+    )
+    int_drivers = ", ".join([f"{k} ({v:,})" for k, v in int_top.items()])
+
+    ext_top = (
+        df[df["Category"] == "External Modpacks"]
+        .groupby("Dependent project")["Downloads"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(4)
+    )
+    ext_drivers = ", ".join([f"{k} ({v:,})" for k, v in ext_top.items()])
+
+    fig = go.Figure()
+
+    # 1. Internal Studio Pull-Through
+    fig.add_trace(
+        go.Bar(
+            y=["Resolved Flywheel (21.4k)", "Total Telemetry (100.2k)"],
+            x=[internal_dls, internal_dls],
+            name="Internal Studio Pull-Through",
+            orientation="h",
+            marker=dict(
+                color=COLOR_PURPLE,
+                line=dict(color="#0F172A", width=1),
+            ),
+            text=[
+                f"{internal_dls:,} ({internal_res_pct:.1f}%)",
+                f"{internal_dls:,} ({internal_tot_pct:.1f}%)",
+            ],
+            textposition="inside",
+            textfont=dict(color=TEXT_COLOR, size=11),
+            customdata=[[internal_res_pct, internal_tot_pct, int_drivers]] * 2,
+            hovertemplate=(
+                "<b>Internal Studio Pull-Through</b><br>"
+                "Downloads: %{x:,}<br>"
+                "Flywheel Share: %{customdata[0]:.1f}%<br>"
+                "Portfolio Share: %{customdata[1]:.1f}%<br>"
+                "Key Drivers: %{customdata[2]}"
+                "<extra></extra>"
+            ),
+        )
+    )
+
+    # 2. External Modpack Ingestion
+    fig.add_trace(
+        go.Bar(
+            y=["Resolved Flywheel (21.4k)", "Total Telemetry (100.2k)"],
+            x=[external_dls, external_dls],
+            name="External Modpacks",
+            orientation="h",
+            marker=dict(
+                color=COLOR_EMERALD,
+                line=dict(color="#0F172A", width=1),
+            ),
+            text=[
+                f"{external_dls:,} ({external_res_pct:.1f}%)",
+                f"{external_dls:,} ({external_tot_pct:.1f}%)",
+            ],
+            textposition="inside",
+            textfont=dict(color=TEXT_COLOR, size=11),
+            customdata=[[external_res_pct, external_tot_pct, ext_drivers]] * 2,
+            hovertemplate=(
+                "<b>External Modpack Ingestion</b><br>"
+                "Downloads: %{x:,}<br>"
+                "Flywheel Share: %{customdata[0]:.1f}%<br>"
+                "Portfolio Share: %{customdata[1]:.1f}%<br>"
+                "Key Modpacks: %{customdata[2]}"
+                "<extra></extra>"
+            ),
+        )
+    )
+
+    # 3. Other / Unknown Telemetry
+    fig.add_trace(
+        go.Bar(
+            y=["Resolved Flywheel (21.4k)", "Total Telemetry (100.2k)"],
+            x=[0, unknown_dls],
+            name="Other / Unknown",
+            orientation="h",
+            marker=dict(
+                color=COLOR_SLATE,
+                line=dict(color="#0F172A", width=1),
+            ),
+            text=[
+                "",
+                f"{unknown_dls:,} ({unknown_tot_pct:.1f}%)",
+            ],
+            textposition="inside",
+            textfont=dict(color=TEXT_COLOR, size=11),
+            hovertemplate=(
+                "<b>Other / Unknown Telemetry</b><br>"
+                "Downloads: %{x:,}<br>"
+                "Portfolio Share: " + f"{unknown_tot_pct:.1f}%<br>"
+                "Direct standalone installs & unattributed launcher pulls"
+                "<extra></extra>"
+            ),
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Dependency Flywheel & Pull-Through Architecture</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        barmode="stack",
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=60, b=40),
+        xaxis=dict(
+            title="Downloads Attributed",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            showgrid=False,
+            zeroline=False,
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=11),
+        ),
+        height=380,
+    )
+    return fig
+
+
+def render_intent_mix_timeline(reason_df: pd.DataFrame) -> go.Figure:
+    """Render B5 100% normalized stacked area timeline of download intent dynamics.
+
+    Tracks monthly acquisition mix across known installation reasons:
+      - Standalone Installation (Cyan #06B6D4)
+      - Version Update (Emerald #10B981)
+      - Modpack Installation (Purple #8B5CF6)
+      - Dependency Resolution (Amber #F59E0B)
+      - Unknown / Pre-tracking (Slate #64748B)
+
+    Args:
+        reason_df: DataFrame containing 'Date', 'Download reason', and 'Downloads' columns.
+
+    Returns:
+        Plotly Figure with smooth 100% stacked area curves illustrating intent shifts over time.
+    """
+    if (
+        reason_df is None
+        or reason_df.empty
+        or "Date" not in reason_df.columns
+        or "Download reason" not in reason_df.columns
+        or "Downloads" not in reason_df.columns
+    ):
+        return _empty_figure("No download intent timeline telemetry available")
+
+    df = reason_df.copy()
+    df["Date"] = pd.to_datetime(df["Date"])
+    df["Period"] = df["Date"].dt.to_period("M").dt.to_timestamp()
+
+    pivot = (
+        df.groupby(["Period", "Download reason"])["Downloads"]
+        .sum()
+        .unstack(fill_value=0)
+        .sort_index()
+    )
+
+    if pivot.empty or pivot.sum().sum() == 0:
+        return _empty_figure("No download intent recorded across timeline")
+
+    totals_per_period = pivot.sum(axis=1)
+    pivot_pct = pivot.div(totals_per_period, axis=0) * 100.0
+
+    category_config = [
+        ("Standalone", "Standalone Installation", COLOR_CYAN, "rgba(6, 182, 212, 0.25)"),
+        ("Update", "Version Update", COLOR_EMERALD, "rgba(16, 185, 129, 0.25)"),
+        ("Modpack", "Modpack Installation", COLOR_PURPLE, "rgba(139, 92, 246, 0.25)"),
+        ("Dependency", "Dependency Resolution", COLOR_AMBER, "rgba(245, 158, 11, 0.25)"),
+        ("Unknown", "Unknown / Pre-tracking", COLOR_SLATE, "rgba(100, 116, 139, 0.25)"),
+    ]
+
+    fig = go.Figure()
+
+    # Add traces in designated sequence
+    for col_key, label, color, fill_color in category_config:
+        if col_key in pivot_pct.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=pivot_pct.index,
+                    y=pivot_pct[col_key],
+                    name=label,
+                    mode="lines",
+                    stackgroup="one",
+                    line=dict(color=color, width=1.5),
+                    fillcolor=fill_color,
+                    customdata=pivot[col_key],
+                    hovertemplate=f"<b>{label}</b>: %{{y:.1f}}% (%{{customdata:,.0f}} DLs)<extra></extra>",
+                )
+            )
+
+    # Any unexpected extra columns
+    known_keys = {c[0] for c in category_config}
+    for col_key in pivot_pct.columns:
+        if col_key not in known_keys:
+            fig.add_trace(
+                go.Scatter(
+                    x=pivot_pct.index,
+                    y=pivot_pct[col_key],
+                    name=str(col_key),
+                    mode="lines",
+                    stackgroup="one",
+                    line=dict(width=1.5),
+                    customdata=pivot[col_key],
+                    hovertemplate=f"<b>{col_key}</b>: %{{y:.1f}}% (%{{customdata:,.0f}} DLs)<extra></extra>",
+                )
+            )
+
+    # Annotate August 2026 update peak and September 2026 modpack surge if present
+    aug_2026 = pd.Timestamp("2026-08-01")
+    if aug_2026 in pivot_pct.index and "Update" in pivot_pct.columns:
+        aug_val = pivot_pct.loc[aug_2026, "Update"]
+        fig.add_annotation(
+            x=aug_2026,
+            y=aug_val + 10.0,
+            text=f"<b>Update Peak</b><br>{aug_val:.1f}% Retention",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowcolor=COLOR_EMERALD,
+            ax=0,
+            ay=-35,
+            bgcolor="rgba(15, 23, 42, 0.85)",
+            bordercolor=COLOR_EMERALD,
+            borderwidth=1,
+            font=dict(size=10, color=TEXT_COLOR),
+        )
+
+    sep_2026 = pd.Timestamp("2026-09-01")
+    if sep_2026 in pivot_pct.index and "Modpack" in pivot_pct.columns:
+        sep_val = pivot_pct.loc[sep_2026, "Modpack"]
+        fig.add_annotation(
+            x=sep_2026,
+            y=85.0,
+            text=f"<b>Modpack Surge</b><br>{sep_val:.1f}% Ingestion",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowcolor=COLOR_PURPLE,
+            ax=0,
+            ay=-35,
+            bgcolor="rgba(15, 23, 42, 0.85)",
+            bordercolor=COLOR_PURPLE,
+            borderwidth=1,
+            font=dict(size=10, color=TEXT_COLOR),
+        )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Download Intent Dynamics (100% Normalized Acquisition Mix)</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=65, b=40),
+        hovermode="x unified",
+        xaxis=dict(
+            title="",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+            tickformat="%b %Y",
+        ),
+        yaxis=dict(
+            title="Share of Downloads (%)",
+            ticksuffix="%",
+            range=[0, 100],
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=11),
+        ),
+        height=420,
+    )
+    return fig
+

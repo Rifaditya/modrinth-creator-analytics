@@ -17,13 +17,16 @@ from src.metrics import (
 )
 from src.charts import (
     render_daily_downloads_chart,
+    render_dependency_flywheel_chart,
     render_dependent_modpacks_chart,
     render_download_reasons_chart,
     render_download_sources_chart,
     render_game_version_timeline_chart,
     render_game_versions_chart,
+    render_intent_mix_timeline,
     render_loader_donut_chart,
     render_monetization_donut_chart,
+    render_monetization_quadrant,
     render_project_leaderboard_chart,
     render_project_version_adoption_chart,
     render_revenue_velocity_chart,
@@ -449,6 +452,52 @@ def test_b1_b2_charts_render_cleanly(bundle: ModrinthDataBundle):
     assert len(fig_rpm.data) == 2
 
 
+def test_b3_b4_b5_charts_render_cleanly(bundle: ModrinthDataBundle):
+    """Verify B3 (monetization quadrant), B4 (dependency flywheel), and B5 (intent dynamics) render cleanly."""
+    # B3: Monetization Asymmetry Quadrant
+    proj_summary = calculate_project_summary(bundle.project)
+    fig_quadrant = render_monetization_quadrant(proj_summary)
+    assert fig_quadrant is not None
+    # 2 traces: Parity line + Projects scatter
+    assert len(fig_quadrant.data) == 2
+    # At least 4 annotations: Better Dogs, Dasik Library, and 2 quadrant badges
+    assert len(fig_quadrant.layout.annotations) >= 4
+
+    # Better Dogs should have higher revenue share than download share
+    bd = proj_summary[proj_summary["Project"] == "VO: Better Dogs"].iloc[0]
+    bd_rev_share = bd["Revenue"] / proj_summary["Revenue"].sum() * 100.0
+    bd_dl_share = bd["Downloads"] / proj_summary["Downloads"].sum() * 100.0
+    assert bd_rev_share > bd_dl_share
+    assert abs(bd_rev_share - 38.44) < 0.1
+    assert abs(bd_dl_share - 30.96) < 0.1
+
+    # Dasik Library should have higher download share than revenue share
+    dl = proj_summary[proj_summary["Project"] == "Dasik Library"].iloc[0]
+    dl_rev_share = dl["Revenue"] / proj_summary["Revenue"].sum() * 100.0
+    dl_dl_share = dl["Downloads"] / proj_summary["Downloads"].sum() * 100.0
+    assert dl_dl_share > dl_rev_share
+    assert abs(dl_dl_share - 41.07) < 0.1
+    assert abs(dl_rev_share - 21.29) < 0.1
+
+    # B4: Dependency Flywheel
+    fig_flywheel = render_dependency_flywheel_chart(bundle.dependent_project)
+    assert fig_flywheel is not None
+    # 3 traces: Internal Studio Pull-Through, External Modpacks, Other / Unknown
+    assert len(fig_flywheel.data) == 3
+    # Verify exact volume figures match empirical telemetry
+    assert list(fig_flywheel.data[0].x) == [13361, 13361]
+    assert list(fig_flywheel.data[1].x) == [8067, 8067]
+    assert list(fig_flywheel.data[2].x) == [0, 78642]
+
+    # B5: Intent Dynamics Timeline
+    fig_intent = render_intent_mix_timeline(bundle.download_reason)
+    assert fig_intent is not None
+    # 5 traces: Standalone, Update, Modpack, Dependency, Unknown
+    assert len(fig_intent.data) == 5
+    # Annotations for August Update peak and September Modpack surge
+    assert len(fig_intent.layout.annotations) >= 2
+
+
 def test_empty_dataframe_chart_resilience():
     """Verify chart functions handle empty DataFrames gracefully without crashing."""
     empty_df = pd.DataFrame()
@@ -469,6 +518,9 @@ def test_empty_dataframe_chart_resilience():
     fig15 = render_telemetry_coverage_chart(None)
     fig16 = render_revenue_vs_views_scatter(empty_df, empty_df)
     fig17 = render_rolling_rpm_trend(empty_df)
+    fig18 = render_monetization_quadrant(empty_df)
+    fig19 = render_dependency_flywheel_chart(empty_df)
+    fig20 = render_intent_mix_timeline(empty_df)
 
     for fig in [
         fig1,
@@ -488,6 +540,9 @@ def test_empty_dataframe_chart_resilience():
         fig15,
         fig16,
         fig17,
+        fig18,
+        fig19,
+        fig20,
     ]:
         assert fig is not None
 
