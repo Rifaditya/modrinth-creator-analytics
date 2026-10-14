@@ -19,8 +19,10 @@ Over the **178-day historical observation window** (April 16, 2026 – October 1
 | :--- | :--- | :--- |
 | **Total Downloads** | **100,226** | 100K milestone achieved across 21 production projects |
 | **Creator Revenue** | **$29.40** | Total Modrinth Creator Program net monetization yield |
+| **Cumulative Playtime** | **1,048.96 hours (~43.7 days)** | Logged in-game engagement tracked across Modrinth App telemetry |
 | **Blended RPM** | **$0.29** | Blended revenue per 1,000 total downloads |
 | **Monetized RPM** | **$2.95** | Effective revenue per 1,000 eligible monetized downloads |
+| **Monetized View RPM** | **$1.17** | Revenue per 1,000 monetized project page views |
 | **Lead Engine Anchor** | **MC 26.2** | Sovereign target anchor leading adoption with 32,556 DLs |
 | **Modern Adoption (26.x)** | **92.3%** | Modern Minecraft versions dominate user installations |
 | **Direct vs Modpack** | **72.0% / 28.0%** | 72,195 standalone user installs vs 28,031 ecosystem modpack pulls |
@@ -40,34 +42,35 @@ Over the **178-day historical observation window** (April 16, 2026 – October 1
 └───────────────┴───────────────────┴──────────────────┴─────────────────┴───────────────┘
 ```
 
-### 💰 Tab 1: Revenue Economics & Milestone Forecaster
-- **Dual-RPM Analysis**: Breaks down the revenue funnel into **Blended RPM** ($0.29 / 1,000 downloads) and **Monetized RPM** ($2.95 / 1,000 eligible downloads). Explains the Modrinth Creator Monetization ratio (~10% eligible monetization rate).
+### 💰 Tab 1: Revenue Economics, Rolling RPM & Milestone Forecaster
+- **Dual-RPM & View-Based Monetization**: Breaks down the revenue funnel into **Blended RPM** ($0.29 / 1,000 downloads) and **Monetized RPM** ($2.95 / 1,000 eligible downloads), complemented by **View-Based Monetization** ($1.17 per 1,000 monetized views) reflecting verified ad impressions on creator project pages. Non-monetized downloads (90.1%) represent launcher updates, background syncs, and direct API pulls where impressions are not served.
+- **Rolling Trailing-30D RPM Dynamics**: Computes 30-day moving window blended and monetized RPMs over time to capture longitudinal monetization momentum beyond static lifetime averages.
 - **Daily Financial Trendlines**: Dual-axis Plotly visualization correlating daily net earnings ($) against daily download velocity.
 - **Interactive Milestone Forecasting Calculator**: Dynamic slider projecting estimated days, daily run-rates, and download targets required to achieve creator milestones ($50, $100, $250, $500, etc.).
-- **Streamer Privacy Mode**: One-click toggle in the sidebar that instantly masks revenue numbers (`$••••`) across all KPI cards, tables, and milestone forecasts for public streaming or screen-sharing.
+- **Streamer Privacy Mode & Pre-Tracking Baseline**: Sidebar toggles to instantly mask revenue figures (`$••••`) for public streaming, and exclude the April 16–30 pre-tracking baseline where dimension telemetry was unrecorded by Modrinth to focus on active logging from May 1 onward.
 
 ### 🚀 Tab 2: Launchers & Distribution Sources
-- **Launcher Market Share**: Deep-dive audit comparing the **Modrinth App** (44,055 DLs, 44.0%), **Prism Launcher** (12,945 DLs, 12.9%), **Web Direct** (17,845 DLs, 17.8%), and third-party clients (**Lunar Client**, **Badlion**, **CurseForge**, **ATLauncher**).
+- **Launcher Market Share**: Deep-dive audit comparing the **Modrinth App** (44,055 DLs, 44.0%), **Web Direct** (17,845 DLs, 17.8%), **Prism Launcher** (16,332 DLs, 16.3%), and third-party clients (**Lunar Client**, **Badlion**, **CurseForge**, **ATLauncher**).
 - **Standalone vs Ecosystem Distribution**: Quantifies direct player intent (72,195 direct downloads) vs secondary modpack bundle syndication (28,031 downloads).
 - **Cumulative Ingestion Trajectory**: Visualizes client adoption waves and growth dynamics over time.
 
 ### 🎮 Tab 3: Minecraft Demographics & Disambiguation Engine
 - **Sovereign Lead Anchor (MC 26.2)**: Tracks 32,556 downloads on MC 26.2, establishing it as the sovereign target version, followed closely by MC 26.1 and 26.3+.
 - **Multi-Era Anchor Parity**: Tracks legacy Long-Term Support (LTS) anchors (1.21.1 with 5,820 DLs and 1.20.1 with 1,672 DLs), validating studio backporting investments.
-- **The Enriched Disambiguation Engine**: Modrinth's raw telemetry leaves **38,783 downloads** categorized as "Other" or "Unknown" due to headless launcher API queries. Our custom enrichment engine cross-references file hash fingerprints and version metadata against `data/modrinth_version_catalog.json` to resolve **99.80%** of all version downloads into their true Minecraft targets.
+- **The Enriched Disambiguation Engine**: Modrinth's raw telemetry leaves **38,775 downloads** categorized as "Other" or "Unknown" due to headless launcher API queries and the April 16–30 pre-tracking baseline. Our custom enrichment engine cross-references file hash fingerprints and version metadata against `data/modrinth_version_catalog.json` to resolve **99.80%** of all version downloads into their true Minecraft targets.
 - **Side-by-Side Verification**: Toggle between **Enriched Engine** and **Raw Telemetry** to audit the exact disambiguation uplift.
 
 ### 📦 Tab 4: Projects & Modpack Ecosystem Matrix
-- **Full Catalog Matrix**: Interactive, sortable leaderboard ranking all 21 studio projects by total downloads, views, revenue, conversion rates, and primary targets.
+- **Full Catalog Matrix**: Interactive, sortable leaderboard ranking all 21 studio projects by total downloads, views, revenue, conversion rates, playtime, and **Downloads per View (x)**.
 - **Flagship Dominance**: Identifies core library utility **Dasik Library** (41,167 DLs) and top standalone player mod **VO: Better Dogs** (31,034 DLs).
 - **Third-Party Modpack Virality**: Tracks dependent project adoption, revealing massive organic syndication through curated modpacks such as **Sensible MC** (11,624 DLs) and **Legacies** (3,522 DLs).
 - **Single Mod Deep-Dive Inspector**: Dedicated sub-view allowing creators to isolate a single project and inspect its version distribution, download reasons, and monetization performance.
 
-### 🌍 Tab 5: Global Geography & Privacy Analytics
-- **World Choropleth Map**: Interactive choropleth visualizer rendering geographic distribution across **38+ identified countries**.
+### 🌍 Tab 5: Global Geography & Telemetry Analytics
+- **World Choropleth Map**: Interactive choropleth visualizer rendering geographic distribution across **8 sovereign nations** (US, Germany, Brazil, UK, China, Russia, Indonesia, Singapore) + Other.
 - **Dual Display Metrics**: Toggle between **Total Downloads** and **Cumulative Playtime (Hours)** to analyze player engagement depth.
-- **High-Contrast Logarithmic Scaling**: Optional logarithmic color normalization to prevent dominant nations (United States with 9,788 DLs, Germany with 1,765 DLs) from flattening international gradients.
-- **Telemetry Transparency Callout**: Highlights Modrinth's privacy-first data handling, which bundles **76,315 downloads** under "Other" to protect European Union GDPR and proxy users.
+- **High-Contrast Logarithmic Scaling**: Optional logarithmic color normalization to prevent dominant nations (United States with 20,381 DLs, Germany with 1,765 DLs) from flattening international gradients.
+- **Telemetry Ingestion Callout**: Highlights Modrinth's logging pipeline telemetry, where **76,315 downloads (76.1%)** under 'Other' represent unrecorded IP telemetry in the logging pipeline (settling to ~75% in later months).
 
 ---
 

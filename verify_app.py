@@ -45,9 +45,14 @@ def gate_1_bytecode_compilation(root_dir: Path) -> Tuple[bool, str]:
 
 
 def gate_2_dataset_integrity(root_dir: Path) -> Tuple[bool, str]:
-    """Gate 2: Verifies dataset integrity, total revenue, downloads, and mapping rate."""
+    """Gate 2: Verifies dataset integrity, total revenue, downloads, mapping rate, and dynamic metrics."""
     try:
         from src.loader import load_all_data
+        from src.metrics import (
+            calculate_country_summary,
+            calculate_kpis,
+            calculate_view_monetization,
+        )
 
         bundle = load_all_data()
 
@@ -60,13 +65,15 @@ def gate_2_dataset_integrity(root_dir: Path) -> Tuple[bool, str]:
             if df is None or df.empty:
                 return False, f"Table '{name}' is empty or None"
 
+        kpis = calculate_kpis(bundle)
+        total_rev = kpis["total_revenue"]
+        total_dls = kpis["total_downloads"]
+
         # Check total revenue (~$29.40 / $29.3994)
-        total_rev = bundle.project["Revenue"].sum()
         if abs(total_rev - 29.40) > 0.05:
             return False, f"Total project revenue ${total_rev:.4f} deviates from expected $29.40"
 
         # Check total downloads (100,226)
-        total_dls = bundle.project["Downloads"].sum()
         if total_dls != 100226:
             return False, f"Total downloads {total_dls} != expected 100,226"
 
@@ -79,9 +86,22 @@ def gate_2_dataset_integrity(root_dir: Path) -> Tuple[bool, str]:
         if mapping_rate < 0.995:
             return False, f"Mapping rate {mapping_rate:.4%} is below 99.5% requirement"
 
+        # Dynamic country and view monetization checks
+        _, country_kpis = calculate_country_summary(
+            bundle.country, total_bundle_downloads=total_dls
+        )
+        if country_kpis["identified_countries_count"] <= 0:
+            return False, "Dynamic identified_countries_count is non-positive"
+
+        view_mon = calculate_view_monetization(bundle.monetization, bundle.member)
+        if view_mon["monetized_view_rpm"] <= 0.0:
+            return False, "Dynamic monetized_view_rpm is non-positive"
+
         return True, (
             f"10/10 tables verified. Revenue: ${total_rev:.4f} (~$29.40), "
-            f"Downloads: {total_dls:,}, Mapping Rate: {mapping_rate:.2%} (>=99.5%)."
+            f"Downloads: {total_dls:,}, Mapping Rate: {mapping_rate:.2%} (>=99.5%), "
+            f"Identified Nations: {country_kpis['identified_countries_count']}, "
+            f"Monetized View RPM: ${view_mon['monetized_view_rpm']:.2f}."
         )
     except Exception as e:
         return False, f"Dataset integrity check raised exception: {e}"
@@ -133,7 +153,26 @@ def gate_4_headless_apptest(root_dir: Path) -> Tuple[bool, str]:
             if at.exception:
                 return False, f"AppTest exception on streamer mode disable: {at.exception}"
 
-        # 2. Version Analytics Source radio interaction
+        # 2. Exclude Pre-Tracking Baseline toggle interaction
+        pretrack_boxes = [cb for cb in at.checkbox if "Pre-Tracking" in cb.label]
+        if pretrack_boxes:
+            pretrack_boxes[0].check().run()
+            if at.exception:
+                return False, f"AppTest exception on pre-tracking exclude: {at.exception}"
+            pretrack_boxes[0].uncheck().run()
+            if at.exception:
+                return False, f"AppTest exception on pre-tracking uncheck: {at.exception}"
+
+        # 3. Dynamic metric checks (verify no hardcoded 38+ string and dynamic Sovereign Nations)
+        country_metrics = [m for m in at.metric if m.label == "Identified Nations"]
+        if country_metrics:
+            val = str(country_metrics[0].value)
+            if "38+" in val:
+                return False, f"Gate 4 failed: Identified Nations still displays hardcoded '38+' string: {val}"
+            if "Sovereign Nations" not in val:
+                return False, f"Gate 4 failed: Expected dynamic 'Sovereign Nations' in Identified Nations, got {val}"
+
+        # 4. Version Analytics Source radio interaction
         source_radios = [r for r in at.radio if "Analytics Source" in r.label]
         if source_radios:
             radio = source_radios[0]
@@ -148,7 +187,7 @@ def gate_4_headless_apptest(root_dir: Path) -> Tuple[bool, str]:
                 if at.exception:
                     return False, f"AppTest exception on switching to Enriched version mode: {at.exception}"
 
-        # 3. Catalog View Mode radio interaction (Deep-Dive & Matrix)
+        # 5. Catalog View Mode radio interaction (Deep-Dive & Matrix)
         view_radios = [r for r in at.radio if "Catalog View Mode" in r.label]
         if view_radios:
             vr = view_radios[0]
@@ -169,7 +208,7 @@ def gate_4_headless_apptest(root_dir: Path) -> Tuple[bool, str]:
                 if at.exception:
                     return False, f"AppTest exception on returning to Matrix view: {at.exception}"
 
-        # 4. Geography controls interaction
+        # 6. Geography controls interaction
         geo_radios = [r for r in at.radio if "Display Metric" in r.label]
         if geo_radios:
             geo_radios[0].set_value("Playtime (Hours)").run()
@@ -188,7 +227,7 @@ def gate_4_headless_apptest(root_dir: Path) -> Tuple[bool, str]:
             if at.exception:
                 return False, f"AppTest exception on unchecking logarithmic scale: {at.exception}"
 
-        return True, "Headless AppTest passed initial run and all interactive widget permutations cleanly (0 exceptions)."
+        return True, "Headless AppTest passed initial run, pre-tracking toggle, dynamic metrics, and all widget permutations cleanly (0 exceptions)."
     except Exception as e:
         return False, f"AppTest execution error: {e}"
 

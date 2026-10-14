@@ -181,7 +181,9 @@ def test_app_tab5_geography_controls(app_path: str):
     assert "United States" in metric_dict["Top Country"]
 
     assert "Identified Nations" in metric_dict
-    assert "38+ Countries" in metric_dict["Identified Nations"]
+    assert "Sovereign Nations" in metric_dict["Identified Nations"]
+    assert "38+" not in metric_dict["Identified Nations"]
+    assert "8 Sovereign Nations" in metric_dict["Identified Nations"]
 
     assert "Identified Traffic" in metric_dict
     assert "23,911 DLs" in metric_dict["Identified Traffic"]
@@ -208,4 +210,29 @@ def test_app_tab5_geography_controls(app_path: str):
 
     log_cb.uncheck().run()
     assert not at.exception, f"Exceptions after disabling log scale: {at.exception}"
+
+
+def test_app_exclude_pretracking_toggle(app_path: str):
+    """Verify toggling 'Exclude Pre-Tracking Baseline (Apr 16–30)' runs cleanly without exceptions."""
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+
+    checkboxes = [cb for cb in at.checkbox if "Pre-Tracking" in cb.label]
+    assert len(checkboxes) == 1, "Exclude Pre-Tracking checkbox not found in sidebar"
+
+    # Check the box to exclude pre-tracking baseline (Apr 16–30)
+    checkboxes[0].check().run()
+    assert not at.exception, f"Exceptions after enabling exclude_pretracking: {at.exception}"
+
+    # Verify metrics updated dynamically to post-May 1st range
+    metric_dict = {m.label: m.value for m in at.metric}
+    assert "Total Mod Downloads" in metric_dict
+    assert "99,043" in metric_dict["Total Mod Downloads"]
+
+    # Uncheck to restore full baseline
+    checkboxes[0].uncheck().run()
+    assert not at.exception, f"Exceptions after disabling exclude_pretracking: {at.exception}"
+    restored_metrics = {m.label: m.value for m in at.metric}
+    assert "100,226" in restored_metrics["Total Mod Downloads"]
+
 

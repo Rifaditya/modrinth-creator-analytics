@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
 import streamlit as st
 
 from src.charts import (
@@ -189,6 +190,12 @@ def render_sidebar(raw_bundle: ModrinthDataBundle) -> tuple[ModrinthDataBundle, 
         help="Masks exact dollar amounts for live streaming and public screenshots.",
     )
 
+    exclude_pretracking = st.sidebar.checkbox(
+        "Exclude Pre-Tracking Baseline (Apr 16–30)",
+        value=False,
+        help="Focus analytics on May 1 – Oct 13, 2026, when Modrinth active dimension telemetry was fully online.",
+    )
+
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📅 Date Range Filter")
 
@@ -210,10 +217,18 @@ def render_sidebar(raw_bundle: ModrinthDataBundle) -> tuple[ModrinthDataBundle, 
 
     if isinstance(selected_dates, (tuple, list)) and len(selected_dates) == 2:
         start_date, end_date = selected_dates
+        if exclude_pretracking:
+            if pd.to_datetime(start_date) < pd.Timestamp("2026-05-01"):
+                start_date = pd.Timestamp("2026-05-01")
         active_bundle = filter_bundle_by_date(raw_bundle, start_date, end_date)
     else:
         # User is actively picking the range in the widget
-        active_bundle = raw_bundle
+        if exclude_pretracking:
+            active_bundle = filter_bundle_by_date(
+                raw_bundle, pd.Timestamp("2026-05-01"), max_date
+            )
+        else:
+            active_bundle = raw_bundle
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📥 Dynamic Data Ingestion")
@@ -301,9 +316,7 @@ def render_tab1_revenue(bundle: ModrinthDataBundle, streamer_mode: bool) -> None
             💡 <b>The Dual-RPM Creator Reality:</b>
             Out of <b>{kpis['total_downloads']:,}</b> total downloads, only 
             <span class="dual-rpm-highlight">{kpis['monetized_downloads']:,} ({kpis['monetization_rate']:.1f}%)</span>
-            generated monetized ad impressions. The remaining 
-            <b>{kpis['unmonetized_downloads']:,} (90.1%)</b> were fetched via automated third-party launchers
-            (Prism Launcher, CurseForge App, Modrinth App background updates) or adblocked sessions.
+            generated monetized ad impressions. Monetized revenue reflects verified ad impressions on creator project pages ($1.17 per 1,000 monetized views). Non-monetized downloads ({100.0 - kpis['monetization_rate']:.1f}%) represent launcher updates, background syncs, and direct API pulls where impressions are not served.
             While your true impression yield is a healthy <b>${kpis['monetized_rpm']:.2f} RPM</b>,
             the effective blended payout across all downloads is <b>${kpis['blended_rpm']:.2f} RPM</b>.
         </div>
@@ -594,9 +607,9 @@ def render_tab3_demographics(bundle: ModrinthDataBundle) -> None:
         """
         <div class="dual-rpm-banner">
             🧩 <b>Why Raw Modrinth Telemetry Reports 38,775 "Unknown" Game Versions:</b><br>
-            Third-party launchers (Prism Launcher, CurseForge App, ATLauncher, PCL2) query mod release files directly via the Modrinth API endpoint without appending the optional <code>?game_versions</code> query parameter in the download request header.
+            April 16–30 was a pre-tracking baseline where Modrinth did not record dimension breakdowns, resulting in initial Unknown tags, while third-party launchers query release files via API endpoints without game version headers.
             <br><br>
-            Our studio's <b>Enriched Demographics Engine</b> decodes project version hashes against our canonical project version catalog, resolving <b>99.5%</b> of these unknown pulls back to their true target Minecraft versions (26.2, 26.1.2, 26.3, 1.21.11, 1.20.1). This demonstrates that our studio's <b>Multi-Era Anchor Parity Law</b> actively captures player demand across both modern Sovereign leads and LTS legacy anchors!
+            Our studio's <b>Enriched Demographics Engine</b> resolves game version compatibility directly from project jar metadata against our canonical version catalog, resolving <b>99.8%</b> of version downloads back to their true target Minecraft versions (26.2, 26.1.2, 26.3, 1.21.11, 1.20.1). This demonstrates that our studio's <b>Multi-Era Anchor Parity Law</b> actively captures player demand across both modern Sovereign leads and LTS legacy anchors!
         </div>
         """,
         unsafe_allow_html=True,
@@ -708,6 +721,10 @@ def render_tab4_projects(
             display_df["Downloads"] = display_df["Downloads"].map("{:,}".format)
             display_df["Share %"] = display_df["Share %"].map("{:.2f}%".format)
             display_df["Views"] = display_df["Views"].map("{:,}".format)
+            if "Downloads per View (x)" in display_df.columns:
+                display_df["Downloads per View (x)"] = display_df[
+                    "Downloads per View (x)"
+                ].map("{:.2f}x".format)
             display_df["Conversion Rate %"] = display_df["Conversion Rate %"].map(
                 "{:.2f}%".format
             )
@@ -827,7 +844,7 @@ def render_tab5_geography(bundle: ModrinthDataBundle) -> None:
     with col2:
         st.metric(
             label="Identified Nations",
-            value="38+ Countries",
+            value=f"{country_kpis['identified_countries_count']} Sovereign Nations",
             delta=f"{country_kpis['identified_countries_count']} Active Regions",
             delta_color="normal",
             help="Global geographic reach across verified IP addresses.",
@@ -883,11 +900,10 @@ def render_tab5_geography(bundle: ModrinthDataBundle) -> None:
 
     with col_right:
         st.markdown(
-            """
+            f"""
             <div class="dual-rpm-banner">
-                🌐 <b>Telemetry Privacy & Launcher Routing Architecture:</b><br><br>
-                The <b>76,315 downloads (76.1%)</b> categorized under <code>Other</code> represent privacy-focused Minecraft launcher clients (such as Prism Launcher, Modrinth App background daemon, and custom third-party launchers) that deliberately omit or mask client IP telemetry when resolving mod files via the Modrinth API.<br><br>
-                Among resolved IP telemetry, the <b>United States</b> dominates with <b>20,381 downloads (20.3%)</b>, followed by strong engagement across Germany, Brazil, the United Kingdom, China, and Russia. This empirical geographic spread proves global appeal across both Western and emerging multi-language Minecraft communities!
+                🌐 <b>Telemetry Ingestion & Geographic Distribution Analysis:</b><br><br>
+                The <b>{country_kpis['other_downloads']:,} downloads ({country_kpis['other_pct']:.1f}%)</b> under 'Other' represent unrecorded IP telemetry in Modrinth's logging pipeline (100% unrecorded in April, settling to ~75% in later months). Among resolved geography, the United States represents <b>{country_kpis['top_country_downloads']:,} downloads ({country_kpis['top_country_pct']:.1f}%)</b>, alongside active engagement in Germany, Brazil, UK, China, Russia, Indonesia, and Singapore.
             </div>
             """,
             unsafe_allow_html=True,
