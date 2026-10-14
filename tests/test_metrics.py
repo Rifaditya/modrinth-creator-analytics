@@ -28,15 +28,20 @@ from src.charts import (
     render_loader_donut_chart,
     render_monetization_donut_chart,
     render_monetization_quadrant,
+    render_growth_waterfall,
+    render_pareto_curve,
     render_project_leaderboard_chart,
     render_project_version_adoption_chart,
     render_revenue_velocity_chart,
     render_revenue_vs_views_scatter,
     render_rolling_rpm_trend,
+    render_seasonality_heatmap,
     render_single_project_velocity,
+    render_spike_attribution_chart,
     render_telemetry_coverage_chart,
     render_top_countries_bar_chart,
     render_us_traffic_diagnostic,
+    render_version_uptake_chart,
     render_world_choropleth_map,
 )
 
@@ -562,6 +567,92 @@ def test_b6_b7_charts_render_cleanly(bundle: ModrinthDataBundle):
     assert any("Headless Modpack Server" in t for t in diag_texts)
 
 
+def test_b8_b12_charts_render_cleanly(bundle: ModrinthDataBundle):
+    """Verify B8-B12 econometric charts render cleanly with expected data structures and annotations."""
+    # B8: Seasonality Heatmap / Day of Week
+    fig_seasonality = render_seasonality_heatmap(bundle.project)
+    assert fig_seasonality is not None
+    assert len(fig_seasonality.data) == 1
+    dow_trace = fig_seasonality.data[0]
+    assert len(dow_trace.x) == 7
+    # Verify Sunday is peak and greater than Friday
+    dow_dict = dict(zip(dow_trace.x, dow_trace.y))
+    assert "Sunday" in dow_dict and "Friday" in dow_dict
+    assert dow_dict["Sunday"] > dow_dict["Friday"]
+    assert abs(dow_dict["Sunday"] - 642.9) < 1.0
+    assert abs(dow_dict["Friday"] - 491.7) < 1.0
+    # Annotations for Friday Release rule and Sunday Peak
+    assert len(fig_seasonality.layout.annotations) >= 2
+    annot_texts = [a.text for a in fig_seasonality.layout.annotations]
+    assert any("Release Anchor" in t for t in annot_texts)
+    assert any("Weekly Peak" in t for t in annot_texts)
+
+    # B9: Spike Detection & Anomaly Attribution
+    fig_spikes = render_spike_attribution_chart(bundle.project)
+    assert fig_spikes is not None
+    # 3 traces: Daily volume, Rolling median line, Catalyst markers
+    assert len(fig_spikes.data) == 3
+    daily_trace = fig_spikes.data[0]
+    median_trace = fig_spikes.data[1]
+    catalyst_trace = fig_spikes.data[2]
+    assert len(daily_trace.x) >= 175
+    assert len(median_trace.x) >= 175
+    assert len(catalyst_trace.x) == 4
+    # Annotations for key catalysts
+    assert len(fig_spikes.layout.annotations) >= 4
+    spike_annots = [a.text for a in fig_spikes.layout.annotations]
+    assert any("Catalog Indexing" in t for t in spike_annots)
+    assert any("Monetization Transition" in t for t in spike_annots)
+    assert any("Sensible MC" in t for t in spike_annots)
+    assert any("Peak Traffic Day" in t for t in spike_annots)
+
+    # B10: Version Adoption Velocity
+    fig_uptake = render_version_uptake_chart(bundle.project_version)
+    assert fig_uptake is not None
+    # 2 traces: Dasik Library and VO: Better Dogs
+    assert len(fig_uptake.data) == 2
+    lib_trace = fig_uptake.data[0]
+    dogs_trace = fig_uptake.data[1]
+    assert "Dasik Library" in lib_trace.name
+    assert "Better Dogs" in dogs_trace.name
+    # Dasik Library Day 1 spike (> 250 DLs/version) vs Better Dogs steady curve
+    assert lib_trace.y[1] > 250.0
+    assert dogs_trace.y[1] < lib_trace.y[1]
+    # Annotations for Headless 1-day spike and Organic 5-day curve
+    assert len(fig_uptake.layout.annotations) >= 2
+    uptake_annots = [a.text for a in fig_uptake.layout.annotations]
+    assert any("Automated Headless Uptake" in t for t in uptake_annots)
+    assert any("Organic Discovery Curve" in t for t in uptake_annots)
+
+    # B11: Portfolio Pareto / Lorenz Concentration Curve
+    fig_pareto = render_pareto_curve(bundle.project)
+    assert fig_pareto is not None
+    # 3 traces: 45-degree line of perfect equality, Lorenz curve, Top 2 marker
+    assert len(fig_pareto.data) == 3
+    eq_trace = fig_pareto.data[0]
+    lorenz_trace = fig_pareto.data[1]
+    top2_trace = fig_pareto.data[2]
+    assert list(eq_trace.x) == [0, 100]
+    assert list(eq_trace.y) == [0, 100]
+    assert len(lorenz_trace.x) >= 20
+    # Top 2 marker share should be ~72.0%
+    assert abs(top2_trace.y[0] - 72.0) < 1.0
+    # Annotation for Top 2 mods and HHI
+    assert len(fig_pareto.layout.annotations) >= 1
+    pareto_annots = [a.text for a in fig_pareto.layout.annotations]
+    assert any("72.0%" in t for t in pareto_annots)
+    assert any("2,731" in t for t in pareto_annots)
+
+    # B12: Growth Waterfall
+    fig_waterfall = render_growth_waterfall(bundle.project)
+    assert fig_waterfall is not None
+    assert len(fig_waterfall.data) == 1
+    waterfall_trace = fig_waterfall.data[0]
+    assert "total" in waterfall_trace.measure
+    # Ending total equals total downloads (100,226)
+    assert waterfall_trace.y[-1] == 100226
+
+
 def test_empty_dataframe_chart_resilience():
     """Verify chart functions handle empty DataFrames gracefully without crashing."""
     empty_df = pd.DataFrame()
@@ -587,6 +678,11 @@ def test_empty_dataframe_chart_resilience():
     fig20 = render_intent_mix_timeline(empty_df)
     fig21 = render_engagement_index_chart(empty_df)
     fig22 = render_us_traffic_diagnostic(empty_df)
+    fig23 = render_seasonality_heatmap(empty_df)
+    fig24 = render_spike_attribution_chart(empty_df)
+    fig25 = render_version_uptake_chart(empty_df)
+    fig26 = render_pareto_curve(empty_df)
+    fig27 = render_growth_waterfall(empty_df)
 
     for fig in [
         fig1,
@@ -611,6 +707,11 @@ def test_empty_dataframe_chart_resilience():
         fig20,
         fig21,
         fig22,
+        fig23,
+        fig24,
+        fig25,
+        fig26,
+        fig27,
     ]:
         assert fig is not None
 

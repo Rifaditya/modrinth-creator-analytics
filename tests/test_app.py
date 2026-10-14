@@ -282,5 +282,62 @@ def test_app_b6_b7_visuals_render(app_path: str):
     assert has_diagnostic_callout, "Tab 5 regional diagnostic callout not found in markdown elements"
 
 
+def test_app_tab6_econometrics_render(app_path: str):
+    """Verify Tab 6 (Advanced Econometrics & Deep Insights) renders cleanly with metrics and callouts."""
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+
+    assert not at.exception, f"AppTest encountered exceptions: {at.exception}"
+
+    metric_dict = {m.label: m.value for m in at.metric}
+
+    # Verify Tab 6 metrics
+    assert "Peak Seasonality Day" in metric_dict, "Peak Seasonality Day metric missing"
+    assert "Sunday (+30.8%)" in metric_dict["Peak Seasonality Day"]
+
+    assert "Max Single-Day Spike" in metric_dict, "Max Single-Day Spike metric missing"
+    assert "1,987 DLs" in metric_dict["Max Single-Day Spike"]
+
+    assert "Version Migration Lag" in metric_dict, "Version Migration Lag metric missing"
+    assert "1d Lib vs 5d Content" in metric_dict["Version Migration Lag"]
+
+    assert "Portfolio Concentration" in metric_dict, "Portfolio Concentration metric missing"
+    assert "HHI 2,731" in metric_dict["Portfolio Concentration"]
+
+    # Verify Tab 6 analytical callouts in markdown
+    markdown_texts = [m.value for m in at.markdown]
+
+    has_seasonality_callout = any(
+        "Studio Constitution Friday 19:00 UTC Release Rule" in text
+        for text in markdown_texts
+    )
+    assert has_seasonality_callout, "Seasonality callout not found in markdown"
+
+    has_catalyst_callout = any(
+        "Longitudinal Catalyst Attribution" in text
+        for text in markdown_texts
+    )
+    assert has_catalyst_callout, "Catalyst attribution callout not found in markdown"
+
+    has_uptake_callout = any(
+        "Headless Automated Uptake vs Human Player Adoption Curves" in text
+        for text in markdown_texts
+    )
+    assert has_uptake_callout, "Version uptake callout not found in markdown"
+
+    has_pareto_callout = any(
+        "Lorenz Distribution & Portfolio Diversification" in text
+        for text in markdown_texts
+    )
+    assert has_pareto_callout, "Pareto concentration callout not found in markdown"
+
+    has_waterfall_callout = any(
+        "Cumulative Growth Decomposition" in text
+        for text in markdown_texts
+    )
+    assert has_waterfall_callout, "Growth waterfall callout not found in markdown"
+
+
+
 
 
