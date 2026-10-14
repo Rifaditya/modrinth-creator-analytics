@@ -30,16 +30,16 @@ Over the **178-day historical observation window** (April 16, 2026 – October 1
 
 ---
 
-## 🧭 The 5 Dedicated Intelligence Tabs
+## 🧭 The 6 Dedicated Intelligence Tabs
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                          MODRINTH CREATOR ANALYTICS STUDIO                             │
-├───────────────┬───────────────────┬──────────────────┬─────────────────┬───────────────┤
-│ 💰 Tab 1      │ 🚀 Tab 2          │ 🎮 Tab 3         │ 📦 Tab 4        │ 🌍 Tab 5      │
-│ Revenue       │ Launchers &       │ Minecraft        │ Projects &      │ Global        │
-│ Economics     │ Sources           │ Demographics     │ Modpacks        │ Geography     │
-└───────────────┴───────────────────┴──────────────────┴─────────────────┴───────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                   MODRINTH CREATOR ANALYTICS STUDIO                                    │
+├───────────────┬───────────────────┬──────────────────┬─────────────────┬───────────────┬───────────────┤
+│ 💰 Tab 1      │ 🚀 Tab 2          │ 🎮 Tab 3         │ 📦 Tab 4        │ 🌍 Tab 5      │ 🔬 Tab 6      │
+│ Revenue       │ Launchers &       │ Minecraft        │ Projects &      │ Global        │ Advanced      │
+│ Economics     │ Sources           │ Demographics     │ Modpacks        │ Geography     │ Econometrics  │
+└───────────────┴───────────────────┴──────────────────┴─────────────────┴───────────────┴───────────────┘
 ```
 
 ### 💰 Tab 1: Revenue Economics, Rolling RPM & Milestone Forecaster
@@ -52,25 +52,34 @@ Over the **178-day historical observation window** (April 16, 2026 – October 1
 ### 🚀 Tab 2: Launchers & Distribution Sources
 - **Launcher Market Share**: Deep-dive audit comparing the **Modrinth App** (44,055 DLs, 44.0%), **Web Direct** (17,845 DLs, 17.8%), **Prism Launcher** (16,332 DLs, 16.3%), and third-party clients (**Lunar Client**, **Badlion**, **CurseForge**, **ATLauncher**).
 - **Standalone vs Ecosystem Distribution**: Quantifies direct player intent (72,195 direct downloads) vs secondary modpack bundle syndication (28,031 downloads).
-- **Cumulative Ingestion Trajectory**: Visualizes client adoption waves and growth dynamics over time.
+- **Download Intent Dynamics (100% Normalized)**: Tracks monthly acquisition mix across Standalone (21% -> 29%), Version Update (8% -> 18.8% peak in Aug), and Modpack Ingestion (21.2% surge in Sep).
+- **Dependency Flywheel Analysis**: Decomposes dependency downloads into Internal Studio Pull-Through (13,361 DLs / 62.4%) vs External Modpacks (8,067 DLs / 37.6% via *Sensible MC* and *Legacies*).
 
 ### 🎮 Tab 3: Minecraft Demographics & Disambiguation Engine
-- **Sovereign Lead Anchor (MC 26.2)**: Tracks 32,556 downloads on MC 26.2, establishing it as the sovereign target version, followed closely by MC 26.1 and 26.3+.
-- **Multi-Era Anchor Parity**: Tracks legacy Long-Term Support (LTS) anchors (1.21.1 with 5,820 DLs and 1.20.1 with 1,672 DLs), validating studio backporting investments.
-- **The Enriched Disambiguation Engine**: Modrinth's raw telemetry leaves **38,775 downloads** categorized as "Other" or "Unknown" due to headless launcher API queries and the April 16–30 pre-tracking baseline. Our custom enrichment engine cross-references file hash fingerprints and version metadata against `data/modrinth_version_catalog.json` to resolve **99.80%** of all version downloads into their true Minecraft targets.
+- **Sovereign Lead Anchor (MC 26.2)**: Tracks sovereign generational adoption leading studio releases.
+- **Multi-Era Anchor Parity & Dwell-Time Index**: Quantifies that players on legacy LTS versions (**MC 1.21.1: 2.49 min/DL**, **MC 1.20.1: 1.51 min/DL**) exhibit **2.3x higher stickiness** than modern rapid releases (**MC 26.2: 1.09 min/DL**), providing quantitative proof for sustaining multi-era backports.
+- **The Enriched Disambiguation Engine**: Modrinth's raw telemetry leaves **38,775 downloads** categorized as "Unknown" due to headless launcher API queries and the April 16–30 pre-tracking baseline. Our custom enrichment engine cross-references file hash fingerprints and version metadata against `data/modrinth_version_catalog.json` to resolve **99.82%** of all version downloads into their true Minecraft targets.
 - **Side-by-Side Verification**: Toggle between **Enriched Engine** and **Raw Telemetry** to audit the exact disambiguation uplift.
 
 ### 📦 Tab 4: Projects & Modpack Ecosystem Matrix
 - **Full Catalog Matrix**: Interactive, sortable leaderboard ranking all 21 studio projects by total downloads, views, revenue, conversion rates, playtime, and **Downloads per View (x)**.
-- **Flagship Dominance**: Identifies core library utility **Dasik Library** (41,167 DLs) and top standalone player mod **VO: Better Dogs** (31,034 DLs).
-- **Third-Party Modpack Virality**: Tracks dependent project adoption, revealing massive organic syndication through curated modpacks such as **Sensible MC** (11,624 DLs) and **Legacies** (3,522 DLs).
+- **Portfolio Monetization Quadrant**: Bubble chart plotting Download Share % vs Revenue Share % against the $y=x$ parity line, spotlighting high-yield flagships (**VO: Better Dogs**, 38.4% rev from 31.0% DLs, $0.364 RPM) vs volume engines (**Dasik Library**, 21.3% rev from 41.1% DLs, $0.152 RPM).
+- **Third-Party Modpack Virality**: Tracks dependent project adoption, revealing organic syndication through curated modpacks like **Sensible MC** and **Legacies**.
 - **Single Mod Deep-Dive Inspector**: Dedicated sub-view allowing creators to isolate a single project and inspect its version distribution, download reasons, and monetization performance.
 
 ### 🌍 Tab 5: Global Geography & Telemetry Analytics
 - **World Choropleth Map**: Interactive choropleth visualizer rendering geographic distribution across **8 sovereign nations** (US, Germany, Brazil, UK, China, Russia, Indonesia, Singapore) + Other.
+- **US Headless Telemetry Diagnostic**: Explains why the United States records 20,381 downloads with only 59 web views (345.4 DLs/view) and 0.03 min playtime/DL by attributing it to automated modpack server syncs.
 - **Dual Display Metrics**: Toggle between **Total Downloads** and **Cumulative Playtime (Hours)** to analyze player engagement depth.
-- **High-Contrast Logarithmic Scaling**: Optional logarithmic color normalization to prevent dominant nations (United States with 20,381 DLs, Germany with 1,765 DLs) from flattening international gradients.
-- **Telemetry Ingestion Callout**: Highlights Modrinth's logging pipeline telemetry, where **76,315 downloads (76.1%)** under 'Other' represent unrecorded IP telemetry in the logging pipeline (settling to ~75% in later months).
+- **High-Contrast Logarithmic Scaling**: Optional logarithmic color normalization to prevent dominant nations from flattening international gradients.
+
+### 🔬 Tab 6: Advanced Econometrics & Deep Insights
+- **Day-of-Week Seasonality (B8)**: Empirically validates that downloads build monotonically from Friday (492 avg) to Sunday (643 avg, +30.8%), justifying weekly releases on **Friday at 19:00 UTC**.
+- **Spike Detection & Anomaly Attribution (B9)**: 14-day rolling median anomaly filters isolating 4 historical catalysts (May 16 launch, Aug 9 monetization, Sep 13 modpack surge, Oct 6 peak day with 1,987 DLs).
+- **Version Adoption Velocity & Migration Lag (B10)**: Contrasts automated 1-day library dependency adoption vs 5-day human content mod discovery waves.
+- **Portfolio Pareto & Lorenz Concentration (B11)**: Lorenz curve and Gini/HHI index confirming an **HHI of 2,731** (top 2 mods drive 72.0% volume).
+- **Growth Waterfall Decomposition (B12)**: Monthly contribution waterfall deconstructing growth from April baseline (+1.2k) to October MTD (+19.9k) reaching **100,226 total downloads**.
+- **Senior Data Analyst Inquiries & Hypotheses**: Interactive analytical inquiry cards at the base of each tab guiding strategic creator decision-making.
 
 ---
 
