@@ -43,7 +43,47 @@ MANUAL_VERSION_ALIASES: Dict[str, Dict[str, Any]] = {
         "project_title": "VO: Better Dogs",
         "target_game_version": "Universal / Multi-Version",
         "supported_game_versions": ["26.1.2", "26.2"],
-    }
+    },
+    "1.0.2+26.3": {
+        "project_title": "IG: Combat Cooldown Adjuster",
+        "target_game_version": "26.3",
+        "supported_game_versions": ["26.3"],
+    },
+    "5NKdFCi1": {
+        "project_title": "VO: Speedometer",
+        "target_game_version": "26.3",
+        "supported_game_versions": ["26.3"],
+    },
+    "dertltvr": {
+        "project_title": "VO: Better Bats",
+        "target_game_version": "26.3",
+        "supported_game_versions": ["26.3"],
+    },
+    "gq5ErCd3": {
+        "project_title": "VO: You Run Fast Render That First",
+        "target_game_version": "26.3",
+        "supported_game_versions": ["26.3"],
+    },
+    "iV88z6NB": {
+        "project_title": "VO: True Sleep",
+        "target_game_version": "26.3",
+        "supported_game_versions": ["26.3"],
+    },
+    "b9Fhgcka": {
+        "project_title": "VO: Better Dogs",
+        "target_game_version": "26.3",
+        "supported_game_versions": ["26.3"],
+    },
+    "1.0.0+build.1": {
+        "project_title": "Collapsible gamerules screen",
+        "target_game_version": "26.1.2",
+        "supported_game_versions": ["26.1.2"],
+    },
+    "1.0.0+build.5": {
+        "project_title": "Collapsible gamerules screen",
+        "target_game_version": "26.1.2",
+        "supported_game_versions": ["26.1.2"],
+    },
 }
 
 
@@ -274,12 +314,12 @@ def enrich_project_version(
                 game_versions.append("Unknown")
         else:
             projects.append("Unknown")
-            # Extract target game version heuristic from tag if present (+26.3, -26.1.2)
             if "+" in val_str:
                 suffix = val_str.split("+")[-1]
-                target = suffix if any(c.isdigit() for c in suffix) else "Unknown"
-            elif "-" in val_str and any(c.isdigit() for c in val_str.split("-")[-1]):
-                target = val_str.split("-")[-1]
+                target = suffix if (suffix.startswith(("1.", "26.")) and any(c.isdigit() for c in suffix)) else "Unknown"
+            elif "-" in val_str:
+                suffix = val_str.split("-")[-1]
+                target = suffix if (suffix.startswith(("1.", "26.")) and any(c.isdigit() for c in suffix)) else "Unknown"
             else:
                 target = "Unknown"
             game_versions.append(target)

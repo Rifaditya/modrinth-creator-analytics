@@ -196,3 +196,34 @@ def test_is_pretracking_column(bundle: ModrinthDataBundle):
             if may_mask.any():
                 assert not df.loc[may_mask, "Is Pretracking"].any(), f"May+ rows not False in {table_name}"
 
+
+def test_263_and_build_manual_aliases(bundle: ModrinthDataBundle):
+    """Verify 26.3 hashes and build.x hashes are mapped accurately via manual aliases."""
+    pv = bundle.project_version
+
+    # Assert 1.0.2+26.3 maps to IG: Combat Cooldown Adjuster on 26.3
+    row_cca = pv[pv["Project version"] == "1.0.2+26.3"]
+    assert not row_cca.empty, "1.0.2+26.3 not found in project_version table"
+    assert (row_cca["Project"] == "IG: Combat Cooldown Adjuster").all()
+    assert (row_cca["Target Game Version"] == "26.3").all()
+
+    # Assert 5NKdFCi1, dertltvr, gq5ErCd3, iV88z6NB, and b9Fhgcka map to 26.3
+    hashes_263 = ["5NKdFCi1", "dertltvr", "gq5ErCd3", "iV88z6NB", "b9Fhgcka"]
+    for h in hashes_263:
+        row = pv[pv["Project version"] == h]
+        assert not row.empty, f"Hash {h} not found in project_version table"
+        assert (row["Target Game Version"] == "26.3").all(), f"Hash {h} does not map to 26.3"
+
+    # Assert 1.0.0+build.1 and 1.0.0+build.5 map to Collapsible gamerules screen on 26.1.2
+    for b_ver in ["1.0.0+build.1", "1.0.0+build.5"]:
+        row = pv[pv["Project version"] == b_ver]
+        assert not row.empty, f"{b_ver} not found in project_version table"
+        assert (row["Project"] == "Collapsible gamerules screen").all()
+        assert (row["Target Game Version"] == "26.1.2").all()
+
+    # Assert no rows in bundle.project_version["Target Game Version"] contain 'build.1' or 'build.5'
+    assert not pv["Target Game Version"].astype(str).str.contains(r"build\.1|build\.5").any(), (
+        "Target Game Version contains 'build.1' or 'build.5'"
+    )
+
+

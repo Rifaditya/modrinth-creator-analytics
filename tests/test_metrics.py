@@ -244,11 +244,11 @@ def test_calculate_version_kpis(bundle: ModrinthDataBundle):
     assert enriched["total_version_downloads"] == 100226
     assert enriched["lead_downloads"] == 28722
     assert abs(enriched["lead_pct"] - 28.66) < 0.02
-    assert enriched["modern_26x_downloads"] == 89777
-    assert abs(enriched["modern_26x_pct"] - 89.57) < 0.02
+    assert enriched["modern_26x_downloads"] == 89791
+    assert abs(enriched["modern_26x_pct"] - 89.59) < 0.02
     assert enriched["legacy_downloads"] == 4414
     assert abs(enriched["legacy_pct"] - 4.40) < 0.02
-    assert enriched["unknown_downloads"] == 189
+    assert enriched["unknown_downloads"] == 179
 
     # Raw Mode
     raw = calculate_version_kpis(

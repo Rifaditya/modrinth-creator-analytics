@@ -72,7 +72,7 @@ def test_app_tab2_and_tab3_metrics(app_path: str):
     assert "28,722 DLs" in metric_dict["Sovereign Lead Anchor"]
 
     assert "Modern Anchors (26.x)" in metric_dict
-    assert "89,777 DLs" in metric_dict["Modern Anchors (26.x)"]
+    assert "89,791 DLs" in metric_dict["Modern Anchors (26.x)"]
 
     assert "Legacy LTS Anchors" in metric_dict
     assert "4,414 DLs" in metric_dict["Legacy LTS Anchors"]
@@ -109,7 +109,7 @@ def test_app_version_mode_toggle(app_path: str):
 
     enriched_metrics = {m.label: m.value for m in at.metric}
     assert "28,722 DLs" in enriched_metrics["Sovereign Lead Anchor"]
-    assert "89,777 DLs" in enriched_metrics["Modern Anchors (26.x)"]
+    assert "89,791 DLs" in enriched_metrics["Modern Anchors (26.x)"]
     assert "4,414 DLs" in enriched_metrics["Legacy LTS Anchors"]
 
 
