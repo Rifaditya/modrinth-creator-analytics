@@ -8,8 +8,10 @@ from src.metrics import (
     calculate_country_summary,
     calculate_kpis,
     calculate_project_summary,
+    calculate_rolling_rpm,
     calculate_source_kpis,
     calculate_version_kpis,
+    calculate_view_monetization,
     filter_bundle_by_date,
     project_milestone_earnings,
 )
@@ -71,6 +73,74 @@ def test_calculate_kpis_parity(bundle: ModrinthDataBundle):
     assert kpis["total_playtime_hours"] > 1000
     assert kpis["avg_playtime_per_download_min"] > 0.5
 
+    # View monetization and trailing 30d RPMs (A4, A5)
+    assert kpis["monetized_views"] == 25140
+    assert kpis["unmonetized_views"] == 12739
+    assert abs(kpis["monetized_view_rpm"] - 1.1694) < 0.005
+    assert abs(kpis["blended_view_rpm"] - 0.7761) < 0.005
+    assert kpis["trailing_30d_blended_rpm"] > 0.0
+    assert kpis["trailing_30d_monetized_rpm"] > 0.0
+
+
+def test_calculate_rolling_rpm(bundle: ModrinthDataBundle):
+    """Verify rolling RPM calculation produces expected columns and non-null values."""
+    rolling_df = calculate_rolling_rpm(
+        bundle.member, bundle.project, bundle.monetization, window_days=30
+    )
+
+    expected_cols = [
+        "Date",
+        "Rolling Revenue",
+        "Rolling Downloads",
+        "Rolling Monetized Downloads",
+        "Rolling Blended RPM",
+        "Rolling Monetized RPM",
+    ]
+    assert list(rolling_df.columns) == expected_cols
+    assert len(rolling_df) > 30
+
+    # First 6 days are null due to min_periods=7
+    assert rolling_df.iloc[:6]["Rolling Revenue"].isna().all()
+    assert rolling_df.iloc[:6]["Rolling Downloads"].isna().all()
+
+    # From 7th day onward (index 6+), all values should be non-null
+    steady_state = rolling_df.iloc[6:]
+    for col in expected_cols[1:]:
+        assert not steady_state[col].isna().any(), f"Column {col} has unexpected NaN values"
+
+    # Verify latest rolling rates are within plausible Modrinth bounds
+    latest = rolling_df.iloc[-1]
+    assert 0.10 <= latest["Rolling Blended RPM"] <= 2.0
+    assert 1.0 <= latest["Rolling Monetized RPM"] <= 10.0
+
+    # Empty input resilience
+    empty_df = pd.DataFrame()
+    empty_res = calculate_rolling_rpm(empty_df, empty_df, empty_df)
+    assert list(empty_res.columns) == expected_cols
+    assert empty_res.empty
+
+
+def test_calculate_view_monetization(bundle: ModrinthDataBundle):
+    """Verify view-based monetization indicators and view RPM metrics (A5)."""
+    res = calculate_view_monetization(bundle.monetization, bundle.member)
+
+    assert res["monetized_views"] == 25140
+    assert res["unmonetized_views"] == 12739
+    assert res["total_views"] == 25140 + 12739
+    assert abs(res["total_revenue"] - 29.3994) < 0.005
+
+    # Monetized view RPM ~ $1.169 / 1k monetized views
+    assert abs(res["monetized_view_rpm"] - 1.1694) < 0.005
+
+    # Blended view RPM ~ $0.776 / 1k total views
+    assert abs(res["blended_view_rpm"] - 0.7761) < 0.005
+
+    # Empty input resilience
+    empty_res = calculate_view_monetization(pd.DataFrame(), pd.DataFrame())
+    assert empty_res["monetized_views"] == 0
+    assert empty_res["monetized_view_rpm"] == 0.0
+    assert empty_res["blended_view_rpm"] == 0.0
+
 
 def test_filter_bundle_by_date(bundle: ModrinthDataBundle):
     """Verify filter_bundle_by_date produces valid date-bounded subset slices."""
@@ -92,12 +162,13 @@ def test_filter_bundle_by_date(bundle: ModrinthDataBundle):
 
 
 def test_project_milestone_earnings():
-    """Verify earnings forecaster output with 500,000 target downloads."""
+    """Verify earnings forecaster output with conservative and optimistic scenarios (A4)."""
     target_dls = 500_000
     blended_rpm = 0.2933315
     monetized_rpm = 2.9520476
     monetization_rate = 9.9365434
 
+    # Baseline scenario with trailing_30d_rpm=None
     proj = project_milestone_earnings(
         target_downloads=target_dls,
         blended_rpm=blended_rpm,
@@ -111,6 +182,23 @@ def test_project_milestone_earnings():
     assert abs(proj["projected_monetized_earnings"] - 146.66) < 0.1
     # Projected monetized downloads should be approx 49,682
     assert abs(proj["projected_monetized_downloads"] - 49682.7) < 1.0
+
+    # Verify conservative earnings (blended * 0.85 fallback) and optimistic earnings (1.25x)
+    assert proj["conservative_earnings"] < proj["projected_blended_earnings"]
+    assert abs(proj["conservative_earnings"] - (146.66575 * 0.85)) < 0.1
+    assert proj["optimistic_earnings"] > proj["projected_blended_earnings"]
+    assert abs(proj["optimistic_earnings"] - (146.66575 * 1.25)) < 0.1
+
+    # Scenario with explicit trailing 30d RPM ($0.26 / 1k DLs)
+    proj_trailing = project_milestone_earnings(
+        target_downloads=target_dls,
+        blended_rpm=blended_rpm,
+        monetized_rpm=monetized_rpm,
+        monetization_rate=monetization_rate,
+        trailing_30d_rpm=0.26,
+    )
+    assert abs(proj_trailing["conservative_earnings"] - 130.0) < 0.01
+    assert abs(proj_trailing["optimistic_earnings"] - (146.66575 * 1.25)) < 0.1
 
 
 def test_calculate_source_kpis(bundle: ModrinthDataBundle):
@@ -212,7 +300,7 @@ def test_charts_render_cleanly(bundle: ModrinthDataBundle):
 
 
 def test_calculate_project_summary(bundle: ModrinthDataBundle):
-    """Verify project catalog summary calculation matches ground truth metrics."""
+    """Verify project catalog summary calculation matches ground truth metrics (A6)."""
     proj_summary = calculate_project_summary(bundle.project)
 
     assert len(proj_summary) == 21, f"Expected 21 projects, got {len(proj_summary)}"
@@ -233,9 +321,22 @@ def test_calculate_project_summary(bundle: ModrinthDataBundle):
     assert proj_summary["Playtime (Hours)"].sum() > 500
     assert (proj_summary["Conversion Rate %"] > 0).all()
 
+    # Verify Downloads per View (x) exists and Dasik Library exceeds 1.0x (A6)
+    assert "Downloads per View (x)" in proj_summary.columns
+    dasik_dpv = proj_summary.iloc[0]["Downloads per View (x)"]
+    assert dasik_dpv > 1.0
+    assert abs(dasik_dpv - 11.40) < 0.05
+
+    # Verify VO: Better Dogs has ~2.16x downloads per view
+    dogs_dpv = proj_summary.iloc[1]["Downloads per View (x)"]
+    assert abs(dogs_dpv - 2.16) < 0.05
+
+    # Verify backward-compatible alias relationship
+    assert abs(proj_summary.iloc[0]["Conversion Rate %"] - dasik_dpv * 100.0) < 1e-6
+
 
 def test_calculate_country_summary(bundle: ModrinthDataBundle):
-    """Verify geographic country telemetry calculations and KPIs."""
+    """Verify geographic country telemetry calculations and KPIs (A2)."""
     # When calibrated against total bundle downloads
     summary_df, kpis = calculate_country_summary(
         bundle.country, total_bundle_downloads=100226
@@ -253,6 +354,7 @@ def test_calculate_country_summary(bundle: ModrinthDataBundle):
     assert kpis["top_country_downloads"] == 20381
     assert abs(kpis["top_country_pct"] - 20.33) < 0.1
 
+    # Dynamic calculation evaluates to exactly 8 sovereign nations (A2)
     assert kpis["identified_countries_count"] == 8
 
     # When run without total_bundle_downloads, fallback to country table sum
@@ -260,6 +362,7 @@ def test_calculate_country_summary(bundle: ModrinthDataBundle):
     assert raw_kpis["country_table_downloads"] == 97551
     assert raw_kpis["top_country"] == "United States"
     assert raw_kpis["top_country_downloads"] == 20381
+    assert raw_kpis["identified_countries_count"] == 8
 
     # Empty DataFrame check
     empty_df = pd.DataFrame()

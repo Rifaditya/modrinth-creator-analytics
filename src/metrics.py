@@ -13,6 +13,172 @@ import pandas as pd
 from src.loader import ModrinthDataBundle
 
 
+def calculate_view_monetization(
+    monetization_df: pd.DataFrame,
+    member_df: Optional[pd.DataFrame] = None,
+    total_revenue: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Calculate view-based monetization indicators and view RPMs (A5).
+
+    Args:
+        monetization_df: DataFrame containing 'Monetization' ('Monetized' vs 'Unmonetized')
+            and 'Views' columns.
+        member_df: Optional DataFrame containing 'Revenue' to derive total creator revenue.
+        total_revenue: Optional explicit total revenue in USD. Overrides member_df if provided.
+
+    Returns:
+        Dictionary containing:
+            - total_revenue: Total earnings in USD
+            - monetized_views: Page views generating ad impressions
+            - unmonetized_views: Page views without ad monetization
+            - total_views: Sum of monetized and unmonetized views
+            - monetized_view_rpm: Revenue per 1,000 monetized page views
+            - blended_view_rpm: Revenue per 1,000 total page views
+    """
+    if total_revenue is not None:
+        rev = float(total_revenue)
+    elif member_df is not None and not member_df.empty and "Revenue" in member_df.columns:
+        rev = float(member_df["Revenue"].sum())
+    else:
+        rev = 0.0
+
+    if (
+        not monetization_df.empty
+        and "Monetization" in monetization_df.columns
+        and "Views" in monetization_df.columns
+    ):
+        mon_mask = monetization_df["Monetization"] == "Monetized"
+        unmon_mask = monetization_df["Monetization"] == "Unmonetized"
+        mon_views = int(monetization_df.loc[mon_mask, "Views"].sum())
+        unmon_views = int(monetization_df.loc[unmon_mask, "Views"].sum())
+    else:
+        mon_views = 0
+        unmon_views = 0
+
+    tot_views = mon_views + unmon_views
+    mon_rpm = (rev / mon_views * 1000.0) if mon_views > 0 else 0.0
+    blend_rpm = (rev / tot_views * 1000.0) if tot_views > 0 else 0.0
+
+    return {
+        "total_revenue": rev,
+        "monetized_views": mon_views,
+        "unmonetized_views": unmon_views,
+        "total_views": tot_views,
+        "monetized_view_rpm": mon_rpm,
+        "blended_view_rpm": blend_rpm,
+    }
+
+
+def calculate_rolling_rpm(
+    member_df: pd.DataFrame,
+    project_df: pd.DataFrame,
+    monetization_df: pd.DataFrame,
+    window_days: int = 30,
+) -> pd.DataFrame:
+    """Calculate rolling blended and monetized RPM over a trailing time window (A4).
+
+    Calculates daily aggregated revenue, daily total downloads, and daily monetized
+    downloads, merges them into a daily time series sorted by Date, and computes
+    rolling sums and effective RPM rates over window_days with min_periods=7.
+
+    Args:
+        member_df: DataFrame containing 'Date' and 'Revenue' (creator payout).
+        project_df: DataFrame containing 'Date' and 'Downloads' (and optionally 'Revenue').
+        monetization_df: DataFrame containing 'Date', 'Downloads', and 'Monetization'.
+        window_days: Rolling window size in days (default 30).
+
+    Returns:
+        DataFrame with columns:
+            - Date: Daily timestamp
+            - Rolling Revenue: Cumulative revenue over rolling window
+            - Rolling Downloads: Cumulative total downloads over rolling window
+            - Rolling Monetized Downloads: Cumulative monetized downloads over rolling window
+            - Rolling Blended RPM: Revenue per 1,000 total downloads
+            - Rolling Monetized RPM: Revenue per 1,000 monetized downloads
+    """
+    cols = [
+        "Date",
+        "Rolling Revenue",
+        "Rolling Downloads",
+        "Rolling Monetized Downloads",
+        "Rolling Blended RPM",
+        "Rolling Monetized RPM",
+    ]
+
+    # 1. Daily aggregated revenue
+    if not member_df.empty and "Revenue" in member_df.columns and "Date" in member_df.columns:
+        daily_rev = member_df.groupby("Date", as_index=False)["Revenue"].sum()
+    elif not project_df.empty and "Revenue" in project_df.columns and "Date" in project_df.columns:
+        daily_rev = project_df.groupby("Date", as_index=False)["Revenue"].sum()
+    else:
+        daily_rev = pd.DataFrame(columns=["Date", "Revenue"])
+
+    # 2. Daily total downloads
+    if not project_df.empty and "Downloads" in project_df.columns and "Date" in project_df.columns:
+        daily_dls = project_df.groupby("Date", as_index=False)["Downloads"].sum()
+    else:
+        daily_dls = pd.DataFrame(columns=["Date", "Downloads"])
+
+    # 3. Daily monetized downloads
+    if (
+        not monetization_df.empty
+        and "Downloads" in monetization_df.columns
+        and "Date" in monetization_df.columns
+        and "Monetization" in monetization_df.columns
+    ):
+        mon_mask = monetization_df["Monetization"] == "Monetized"
+        daily_mon = (
+            monetization_df[mon_mask]
+            .groupby("Date", as_index=False)["Downloads"]
+            .sum()
+            .rename(columns={"Downloads": "Monetized Downloads"})
+        )
+    else:
+        daily_mon = pd.DataFrame(columns=["Date", "Monetized Downloads"])
+
+    if daily_dls.empty and daily_mon.empty and daily_rev.empty:
+        return pd.DataFrame(columns=cols)
+
+    # 4. Merge time series
+    merged = pd.merge(daily_dls, daily_mon, on="Date", how="outer")
+    merged = pd.merge(merged, daily_rev, on="Date", how="outer")
+    merged["Downloads"] = merged["Downloads"].fillna(0.0)
+    merged["Monetized Downloads"] = merged["Monetized Downloads"].fillna(0.0)
+    merged["Revenue"] = merged["Revenue"].fillna(0.0)
+    merged = merged.sort_values("Date").reset_index(drop=True)
+
+    # 5. Compute rolling sums
+    min_p = min(7, window_days) if window_days > 0 else 1
+    merged["Rolling Revenue"] = (
+        merged["Revenue"].rolling(window_days, min_periods=min_p).sum()
+    )
+    merged["Rolling Downloads"] = (
+        merged["Downloads"].rolling(window_days, min_periods=min_p).sum()
+    )
+    merged["Rolling Monetized Downloads"] = (
+        merged["Monetized Downloads"].rolling(window_days, min_periods=min_p).sum()
+    )
+
+    # 6. Compute rolling RPM rates
+    valid_dls = merged["Rolling Downloads"].notna()
+    merged["Rolling Blended RPM"] = pd.Series(index=merged.index, dtype=float)
+    merged.loc[valid_dls, "Rolling Blended RPM"] = (
+        (merged.loc[valid_dls, "Rolling Revenue"] / merged.loc[valid_dls, "Rolling Downloads"] * 1000.0)
+        .replace([float("inf"), float("-inf")], 0.0)
+        .fillna(0.0)
+    )
+
+    valid_mon = merged["Rolling Monetized Downloads"].notna()
+    merged["Rolling Monetized RPM"] = pd.Series(index=merged.index, dtype=float)
+    merged.loc[valid_mon, "Rolling Monetized RPM"] = (
+        (merged.loc[valid_mon, "Rolling Revenue"] / merged.loc[valid_mon, "Rolling Monetized Downloads"] * 1000.0)
+        .replace([float("inf"), float("-inf")], 0.0)
+        .fillna(0.0)
+    )
+
+    return merged[cols]
+
+
 def calculate_kpis(bundle: ModrinthDataBundle) -> Dict[str, Any]:
     """Calculate key performance indicators across the Modrinth data bundle.
 
@@ -33,6 +199,12 @@ def calculate_kpis(bundle: ModrinthDataBundle) -> Dict[str, Any]:
             - monetization_rate: Percentage of downloads that are monetized (%)
             - monetized_rpm: Revenue per 1,000 monetized downloads
             - avg_playtime_per_download_min: Average playtime per download in minutes
+            - monetized_views: Total monetized project page views
+            - unmonetized_views: Total unmonetized project page views
+            - monetized_view_rpm: Revenue per 1,000 monetized page views
+            - blended_view_rpm: Revenue per 1,000 total page views
+            - trailing_30d_blended_rpm: Trailing 30-day blended revenue per 1k downloads
+            - trailing_30d_monetized_rpm: Trailing 30-day monetized revenue per 1k monetized downloads
     """
     # Revenue: member table has exact creator payout, project table has project-level revenue
     if not bundle.member.empty and "Revenue" in bundle.member.columns:
@@ -91,6 +263,35 @@ def calculate_kpis(bundle: ModrinthDataBundle) -> Dict[str, Any]:
         else 0.0
     )
 
+    # View monetization metrics (A5)
+    view_mon = calculate_view_monetization(
+        bundle.monetization, bundle.member, total_revenue=total_revenue
+    )
+    monetized_views = view_mon["monetized_views"]
+    unmonetized_views = view_mon["unmonetized_views"]
+    monetized_view_rpm = view_mon["monetized_view_rpm"]
+    blended_view_rpm = view_mon["blended_view_rpm"]
+
+    # Trailing 30-day RPM metrics (A4)
+    rolling_df = calculate_rolling_rpm(
+        bundle.member, bundle.project, bundle.monetization, window_days=30
+    )
+    if not rolling_df.empty and "Rolling Blended RPM" in rolling_df.columns:
+        valid_b = rolling_df["Rolling Blended RPM"].dropna()
+        trailing_30d_blended_rpm = (
+            float(valid_b.iloc[-1]) if not valid_b.empty else blended_rpm
+        )
+    else:
+        trailing_30d_blended_rpm = blended_rpm
+
+    if not rolling_df.empty and "Rolling Monetized RPM" in rolling_df.columns:
+        valid_m = rolling_df["Rolling Monetized RPM"].dropna()
+        trailing_30d_monetized_rpm = (
+            float(valid_m.iloc[-1]) if not valid_m.empty else monetized_rpm
+        )
+    else:
+        trailing_30d_monetized_rpm = monetized_rpm
+
     return {
         "total_revenue": total_revenue,
         "total_downloads": total_downloads,
@@ -104,6 +305,12 @@ def calculate_kpis(bundle: ModrinthDataBundle) -> Dict[str, Any]:
         "monetization_rate": monetization_rate,
         "monetized_rpm": monetized_rpm,
         "avg_playtime_per_download_min": avg_playtime_per_download_min,
+        "monetized_views": monetized_views,
+        "unmonetized_views": unmonetized_views,
+        "monetized_view_rpm": monetized_view_rpm,
+        "blended_view_rpm": blended_view_rpm,
+        "trailing_30d_blended_rpm": trailing_30d_blended_rpm,
+        "trailing_30d_monetized_rpm": trailing_30d_monetized_rpm,
     }
 
 
@@ -146,14 +353,16 @@ def project_milestone_earnings(
     blended_rpm: float,
     monetized_rpm: float,
     monetization_rate: float,
+    trailing_30d_rpm: Optional[float] = None,
 ) -> Dict[str, float]:
-    """Compute projected earnings for a given milestone download target.
+    """Compute projected earnings for a given milestone download target (A4).
 
     Args:
         target_downloads: Milestone target total downloads (e.g. 500,000).
         blended_rpm: Effective blended revenue per 1,000 total downloads.
         monetized_rpm: Revenue per 1,000 monetized impression downloads.
         monetization_rate: Proportion of downloads generating monetized impressions (%).
+        trailing_30d_rpm: Optional trailing 30-day blended RPM for conservative baseline modeling.
 
     Returns:
         Dictionary containing projected metrics:
@@ -161,6 +370,8 @@ def project_milestone_earnings(
             - projected_blended_earnings: Projected USD revenue using blended RPM
             - projected_monetized_downloads: Estimated monetized downloads count
             - projected_monetized_earnings: Projected USD revenue using monetized RPM
+            - conservative_earnings: Projected USD revenue using trailing 30d RPM (or blended * 0.85 fallback)
+            - optimistic_earnings: Projected USD revenue using 1.25x blended RPM
     """
     target_dl_float = float(target_downloads)
     projected_blended_earnings = (target_dl_float / 1000.0) * blended_rpm
@@ -169,11 +380,20 @@ def project_milestone_earnings(
         (projected_monetized_downloads / 1000.0) * monetized_rpm
     )
 
+    if trailing_30d_rpm is not None and trailing_30d_rpm > 0:
+        conservative_earnings = (target_dl_float / 1000.0) * float(trailing_30d_rpm)
+    else:
+        conservative_earnings = (target_dl_float / 1000.0) * (blended_rpm * 0.85)
+
+    optimistic_earnings = (target_dl_float / 1000.0) * (blended_rpm * 1.25)
+
     return {
         "target_downloads": target_dl_float,
         "projected_blended_earnings": projected_blended_earnings,
         "projected_monetized_downloads": projected_monetized_downloads,
         "projected_monetized_earnings": projected_monetized_earnings,
+        "conservative_earnings": conservative_earnings,
+        "optimistic_earnings": optimistic_earnings,
     }
 
 
@@ -345,7 +565,7 @@ def calculate_version_kpis(
 
 
 def calculate_project_summary(project_df: pd.DataFrame) -> pd.DataFrame:
-    """Calculate aggregated performance metrics across all studio projects.
+    """Calculate aggregated performance metrics across all studio projects (A6).
 
     Args:
         project_df: DataFrame containing 'Project', 'Downloads', 'Views', 'Revenue',
@@ -357,22 +577,23 @@ def calculate_project_summary(project_df: pd.DataFrame) -> pd.DataFrame:
             - Downloads: Total download count
             - Share %: Percentage of total downloads across all projects
             - Views: Total page views
-            - Conversion Rate %: Downloads / Views * 100 (0 if Views == 0)
+            - Downloads per View (x): Downloads / Views (e.g. 11.40 for library)
+            - Conversion Rate %: Backward-compatible alias (Downloads per View (x) * 100)
             - Revenue: Total USD earnings
             - Playtime (Hours): Cumulative playtime in hours
     """
+    cols = [
+        "Project",
+        "Downloads",
+        "Share %",
+        "Views",
+        "Downloads per View (x)",
+        "Conversion Rate %",
+        "Revenue",
+        "Playtime (Hours)",
+    ]
     if project_df.empty or "Project" not in project_df.columns:
-        return pd.DataFrame(
-            columns=[
-                "Project",
-                "Downloads",
-                "Share %",
-                "Views",
-                "Conversion Rate %",
-                "Revenue",
-                "Playtime (Hours)",
-            ]
-        )
+        return pd.DataFrame(columns=cols)
 
     df = project_df.copy()
     for col in ["Downloads", "Views", "Revenue", "Playtime (seconds)"]:
@@ -395,24 +616,15 @@ def calculate_project_summary(project_df: pd.DataFrame) -> pd.DataFrame:
     agg["Share %"] = (
         (agg["Downloads"] / total_downloads * 100.0) if total_downloads > 0 else 0.0
     )
-    agg["Conversion Rate %"] = agg.apply(
-        lambda r: (r["Downloads"] / r["Views"] * 100.0) if r["Views"] > 0 else 0.0,
+    agg["Downloads per View (x)"] = agg.apply(
+        lambda r: (r["Downloads"] / r["Views"]) if r["Views"] > 0 else 0.0,
         axis=1,
     )
+    agg["Conversion Rate %"] = agg["Downloads per View (x)"] * 100.0
     agg["Playtime (Hours)"] = agg["Playtime (seconds)"] / 3600.0
 
     summary_df = (
-        agg[
-            [
-                "Project",
-                "Downloads",
-                "Share %",
-                "Views",
-                "Conversion Rate %",
-                "Revenue",
-                "Playtime (Hours)",
-            ]
-        ]
+        agg[cols]
         .sort_values("Downloads", ascending=False)
         .reset_index(drop=True)
     )
@@ -552,7 +764,7 @@ def calculate_country_summary(
         "top_country": top_country_name,
         "top_country_downloads": top_country_dls,
         "top_country_pct": top_country_pct,
-        "identified_countries_count": len(non_other_df),
+        "identified_countries_count": len(non_other_df["Country"].unique()),
         "total_views": total_views,
         "identified_views": identified_views,
         "other_views": other_views,
