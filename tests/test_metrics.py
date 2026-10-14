@@ -5,7 +5,9 @@ import pandas as pd
 
 from src.loader import ModrinthDataBundle, load_all_data
 from src.metrics import (
+    calculate_country_summary,
     calculate_kpis,
+    calculate_project_summary,
     calculate_source_kpis,
     calculate_version_kpis,
     filter_bundle_by_date,
@@ -13,13 +15,19 @@ from src.metrics import (
 )
 from src.charts import (
     render_daily_downloads_chart,
+    render_dependent_modpacks_chart,
     render_download_reasons_chart,
     render_download_sources_chart,
     render_game_version_timeline_chart,
     render_game_versions_chart,
     render_loader_donut_chart,
     render_monetization_donut_chart,
+    render_project_leaderboard_chart,
+    render_project_version_adoption_chart,
     render_revenue_velocity_chart,
+    render_single_project_velocity,
+    render_top_countries_bar_chart,
+    render_world_choropleth_map,
 )
 
 
@@ -203,6 +211,114 @@ def test_charts_render_cleanly(bundle: ModrinthDataBundle):
     assert len(fig_loader.data) == 1  # Donut trace
 
 
+def test_calculate_project_summary(bundle: ModrinthDataBundle):
+    """Verify project catalog summary calculation matches ground truth metrics."""
+    proj_summary = calculate_project_summary(bundle.project)
+
+    assert len(proj_summary) == 21, f"Expected 21 projects, got {len(proj_summary)}"
+    assert proj_summary["Downloads"].sum() == 100226
+
+    # Verify descending sort: Dasik Library first, VO: Better Dogs second
+    assert proj_summary.iloc[0]["Project"] == "Dasik Library"
+    assert proj_summary.iloc[0]["Downloads"] == 41167
+    assert abs(proj_summary.iloc[0]["Share %"] - 41.07) < 0.1
+
+    assert proj_summary.iloc[1]["Project"] == "VO: Better Dogs"
+    assert proj_summary.iloc[1]["Downloads"] == 31034
+
+    # Verify Share % sums to 100%
+    assert abs(proj_summary["Share %"].sum() - 100.0) < 0.01
+
+    # Verify Playtime and conversion rate are computed
+    assert proj_summary["Playtime (Hours)"].sum() > 500
+    assert (proj_summary["Conversion Rate %"] > 0).all()
+
+
+def test_calculate_country_summary(bundle: ModrinthDataBundle):
+    """Verify geographic country telemetry calculations and KPIs."""
+    # When calibrated against total bundle downloads
+    summary_df, kpis = calculate_country_summary(
+        bundle.country, total_bundle_downloads=100226
+    )
+
+    assert len(summary_df) == 9
+    assert kpis["total_downloads"] == 100226
+    assert kpis["other_downloads"] == 76315
+    assert abs(kpis["other_pct"] - 76.14) < 0.1
+
+    assert kpis["identified_downloads"] == 23911
+    assert abs(kpis["identified_pct"] - 23.86) < 0.1
+
+    assert kpis["top_country"] == "United States"
+    assert kpis["top_country_downloads"] == 20381
+    assert abs(kpis["top_country_pct"] - 20.33) < 0.1
+
+    assert kpis["identified_countries_count"] == 8
+
+    # When run without total_bundle_downloads, fallback to country table sum
+    raw_summary, raw_kpis = calculate_country_summary(bundle.country)
+    assert raw_kpis["country_table_downloads"] == 97551
+    assert raw_kpis["top_country"] == "United States"
+    assert raw_kpis["top_country_downloads"] == 20381
+
+    # Empty DataFrame check
+    empty_df = pd.DataFrame()
+    _, empty_kpis = calculate_country_summary(empty_df)
+    assert empty_kpis["total_downloads"] == 0
+    assert empty_kpis["top_country"] == "None"
+
+
+def test_tab4_and_tab5_charts_render_cleanly(bundle: ModrinthDataBundle):
+    """Verify Tab 4 and Tab 5 chart rendering functions generate valid figures."""
+    proj_summary = calculate_project_summary(bundle.project)
+
+    # Tab 4 charts
+    fig_lead = render_project_leaderboard_chart(proj_summary)
+    assert fig_lead is not None
+    assert len(fig_lead.data) == 1
+
+    fig_dep = render_dependent_modpacks_chart(bundle.dependent_project)
+    assert fig_dep is not None
+    assert len(fig_dep.data) == 1
+
+    fig_vel = render_single_project_velocity(bundle.project, "Dasik Library")
+    assert fig_vel is not None
+    assert len(fig_vel.data) == 1
+
+    fig_ver = render_project_version_adoption_chart(
+        bundle.project_version, "Dasik Library"
+    )
+    assert fig_ver is not None
+    assert len(fig_ver.data) == 1
+
+    # Tab 5 charts
+    fig_map_dl = render_world_choropleth_map(
+        bundle.country, metric="Downloads", use_log=False
+    )
+    assert fig_map_dl is not None
+    assert len(fig_map_dl.data) == 1
+
+    fig_map_log = render_world_choropleth_map(
+        bundle.country, metric="Downloads", use_log=True
+    )
+    assert fig_map_log is not None
+
+    fig_map_play = render_world_choropleth_map(
+        bundle.country, metric="Playtime (Hours)", use_log=False
+    )
+    assert fig_map_play is not None
+
+    fig_top_c = render_top_countries_bar_chart(bundle.country, metric="Downloads")
+    assert fig_top_c is not None
+    assert len(fig_top_c.data) == 1
+
+    fig_top_play = render_top_countries_bar_chart(
+        bundle.country, metric="Playtime (Hours)"
+    )
+    assert fig_top_play is not None
+    assert len(fig_top_play.data) == 1
+
+
 def test_empty_dataframe_chart_resilience():
     """Verify chart functions handle empty DataFrames gracefully without crashing."""
     empty_df = pd.DataFrame()
@@ -214,6 +330,28 @@ def test_empty_dataframe_chart_resilience():
     fig6 = render_game_versions_chart(empty_df)
     fig7 = render_game_version_timeline_chart(empty_df)
     fig8 = render_loader_donut_chart(empty_df)
+    fig9 = render_project_leaderboard_chart(empty_df)
+    fig10 = render_dependent_modpacks_chart(empty_df)
+    fig11 = render_single_project_velocity(empty_df, "Dasik Library")
+    fig12 = render_project_version_adoption_chart(empty_df, "Dasik Library")
+    fig13 = render_world_choropleth_map(empty_df)
+    fig14 = render_top_countries_bar_chart(empty_df)
 
-    for fig in [fig1, fig2, fig3, fig4, fig5, fig6, fig7, fig8]:
+    for fig in [
+        fig1,
+        fig2,
+        fig3,
+        fig4,
+        fig5,
+        fig6,
+        fig7,
+        fig8,
+        fig9,
+        fig10,
+        fig11,
+        fig12,
+        fig13,
+        fig14,
+    ]:
         assert fig is not None
+

@@ -7,7 +7,7 @@ forecasting based on empirical monetization conversion rates.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Tuple, Union
 import pandas as pd
 
 from src.loader import ModrinthDataBundle
@@ -342,3 +342,221 @@ def calculate_version_kpis(
         "unknown_downloads": unknown,
         "unknown_pct": (unknown / total_dls * 100.0) if total_dls > 0 else 0.0,
     }
+
+
+def calculate_project_summary(project_df: pd.DataFrame) -> pd.DataFrame:
+    """Calculate aggregated performance metrics across all studio projects.
+
+    Args:
+        project_df: DataFrame containing 'Project', 'Downloads', 'Views', 'Revenue',
+            and 'Playtime (seconds)' columns.
+
+    Returns:
+        DataFrame aggregated by Project, sorted descending by Downloads:
+            - Project: Project title string
+            - Downloads: Total download count
+            - Share %: Percentage of total downloads across all projects
+            - Views: Total page views
+            - Conversion Rate %: Downloads / Views * 100 (0 if Views == 0)
+            - Revenue: Total USD earnings
+            - Playtime (Hours): Cumulative playtime in hours
+    """
+    if project_df.empty or "Project" not in project_df.columns:
+        return pd.DataFrame(
+            columns=[
+                "Project",
+                "Downloads",
+                "Share %",
+                "Views",
+                "Conversion Rate %",
+                "Revenue",
+                "Playtime (Hours)",
+            ]
+        )
+
+    df = project_df.copy()
+    for col in ["Downloads", "Views", "Revenue", "Playtime (seconds)"]:
+        if col not in df.columns:
+            df[col] = 0
+
+    agg = (
+        df.groupby("Project", as_index=False)
+        .agg(
+            {
+                "Downloads": "sum",
+                "Views": "sum",
+                "Revenue": "sum",
+                "Playtime (seconds)": "sum",
+            }
+        )
+    )
+
+    total_downloads = agg["Downloads"].sum()
+    agg["Share %"] = (
+        (agg["Downloads"] / total_downloads * 100.0) if total_downloads > 0 else 0.0
+    )
+    agg["Conversion Rate %"] = agg.apply(
+        lambda r: (r["Downloads"] / r["Views"] * 100.0) if r["Views"] > 0 else 0.0,
+        axis=1,
+    )
+    agg["Playtime (Hours)"] = agg["Playtime (seconds)"] / 3600.0
+
+    summary_df = (
+        agg[
+            [
+                "Project",
+                "Downloads",
+                "Share %",
+                "Views",
+                "Conversion Rate %",
+                "Revenue",
+                "Playtime (Hours)",
+            ]
+        ]
+        .sort_values("Downloads", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    return summary_df
+
+
+def calculate_country_summary(
+    country_df: pd.DataFrame, total_bundle_downloads: Optional[int] = None
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Calculate geographic telemetry metrics and country-by-country summary.
+
+    Args:
+        country_df: DataFrame containing 'Country', 'Downloads', 'Views', and
+            'Playtime (seconds)'.
+        total_bundle_downloads: Optional total downloads across all studio projects.
+            If provided, percentage calculations are calibrated against studio total.
+
+    Returns:
+        Tuple containing:
+            - country_summary_df: Aggregated DataFrame sorted descending by Downloads:
+                - Country: Country name string
+                - Downloads: Total download count
+                - Views: Total page views
+                - Playtime (seconds): Total playtime in seconds
+                - Playtime (Hours): Cumulative playtime in hours
+                - Share %: Percentage of downloads
+            - country_kpis: Dictionary of summary indicators:
+                - total_downloads: Reference total downloads (bundle or country table)
+                - country_table_downloads: Sum of downloads in country table
+                - other_downloads: Unresolved launcher IP downloads ('Other')
+                - other_pct: Share of downloads from 'Other' (%)
+                - identified_downloads: Downloads from resolved geographic countries
+                - identified_pct: Share of downloads from resolved countries (%)
+                - top_country: Country with highest resolved downloads
+                - top_country_downloads: Downloads for top country
+                - top_country_pct: Share of downloads for top country (%)
+                - identified_countries_count: Count of identified non-'Other' countries
+                - total_views: Total page views in country table
+                - identified_views: Views from resolved countries
+                - other_views: Views from 'Other'
+    """
+    if country_df.empty or "Country" not in country_df.columns:
+        empty_df = pd.DataFrame(
+            columns=[
+                "Country",
+                "Downloads",
+                "Views",
+                "Playtime (seconds)",
+                "Playtime (Hours)",
+                "Share %",
+            ]
+        )
+        empty_kpis = {
+            "total_downloads": 0,
+            "country_table_downloads": 0,
+            "other_downloads": 0,
+            "other_pct": 0.0,
+            "identified_downloads": 0,
+            "identified_pct": 0.0,
+            "top_country": "None",
+            "top_country_downloads": 0,
+            "top_country_pct": 0.0,
+            "identified_countries_count": 0,
+            "total_views": 0,
+            "identified_views": 0,
+            "other_views": 0,
+        }
+        return empty_df, empty_kpis
+
+    df = country_df.copy()
+    for col in ["Downloads", "Views", "Playtime (seconds)"]:
+        if col not in df.columns:
+            df[col] = 0
+
+    agg = (
+        df.groupby("Country", as_index=False)
+        .agg(
+            {
+                "Downloads": "sum",
+                "Views": "sum",
+                "Playtime (seconds)": "sum",
+            }
+        )
+    )
+    agg["Playtime (Hours)"] = agg["Playtime (seconds)"] / 3600.0
+
+    table_total_dls = int(agg["Downloads"].sum())
+    ref_total_dls = (
+        total_bundle_downloads
+        if (total_bundle_downloads is not None and total_bundle_downloads > 0)
+        else table_total_dls
+    )
+
+    agg["Share %"] = (
+        (agg["Downloads"] / ref_total_dls * 100.0) if ref_total_dls > 0 else 0.0
+    )
+
+    summary_df = agg.sort_values("Downloads", ascending=False).reset_index(drop=True)
+
+    other_mask = summary_df["Country"] == "Other"
+    other_row = summary_df[other_mask]
+    other_dls = int(other_row["Downloads"].iloc[0]) if not other_row.empty else 0
+    other_views = int(other_row["Views"].iloc[0]) if not other_row.empty else 0
+
+    non_other_df = summary_df[~other_mask]
+    total_views = int(summary_df["Views"].sum())
+    identified_views = int(non_other_df["Views"].sum())
+
+    if total_bundle_downloads is not None and total_bundle_downloads > 0:
+        identified_dls = total_bundle_downloads - other_dls
+    else:
+        identified_dls = int(non_other_df["Downloads"].sum())
+
+    if not non_other_df.empty:
+        top_country_name = str(non_other_df.iloc[0]["Country"])
+        top_country_dls = int(non_other_df.iloc[0]["Downloads"])
+    else:
+        top_country_name = "None"
+        top_country_dls = 0
+
+    other_pct = (other_dls / ref_total_dls * 100.0) if ref_total_dls > 0 else 0.0
+    identified_pct = (
+        (identified_dls / ref_total_dls * 100.0) if ref_total_dls > 0 else 0.0
+    )
+    top_country_pct = (
+        (top_country_dls / ref_total_dls * 100.0) if ref_total_dls > 0 else 0.0
+    )
+
+    kpis = {
+        "total_downloads": ref_total_dls,
+        "country_table_downloads": table_total_dls,
+        "other_downloads": other_dls,
+        "other_pct": other_pct,
+        "identified_downloads": identified_dls,
+        "identified_pct": identified_pct,
+        "top_country": top_country_name,
+        "top_country_downloads": top_country_dls,
+        "top_country_pct": top_country_pct,
+        "identified_countries_count": len(non_other_df),
+        "total_views": total_views,
+        "identified_views": identified_views,
+        "other_views": other_views,
+    }
+
+    return summary_df, kpis
+

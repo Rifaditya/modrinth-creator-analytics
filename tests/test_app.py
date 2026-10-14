@@ -111,3 +111,101 @@ def test_app_version_mode_toggle(app_path: str):
     assert "32,556 DLs" in enriched_metrics["Sovereign Lead Anchor"]
     assert "92,541 DLs" in enriched_metrics["Modern Anchors (26.x)"]
     assert "7,492 DLs" in enriched_metrics["Legacy LTS Anchors"]
+
+
+def test_app_tab4_projects_matrix_and_deep_dive(app_path: str):
+    """Verify Tab 4 matrix view, KPI metrics, and sub-view switching to single mod deep-dive."""
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+
+    assert not at.exception, f"AppTest encountered exceptions: {at.exception}"
+
+    metric_dict = {m.label: m.value for m in at.metric}
+
+    # Tab 4 Full Catalog Matrix default metrics
+    assert "Catalog Size" in metric_dict
+    assert "21 Projects" in metric_dict["Catalog Size"]
+
+    assert "Flagship Mod" in metric_dict
+    assert "Dasik Library" in metric_dict["Flagship Mod"]
+
+    assert "Top External Modpack" in metric_dict
+    assert "Sensible MC" in metric_dict["Top External Modpack"]
+
+    # Locate Catalog View Mode radio
+    radios = [r for r in at.radio if "Catalog View Mode" in r.label]
+    assert len(radios) == 1, "Catalog View Mode radio not found"
+    view_radio = radios[0]
+
+    deep_dive_opt = [opt for opt in view_radio.options if "Deep-Dive" in opt][0]
+    matrix_opt = [opt for opt in view_radio.options if "Matrix" in opt][0]
+
+    # Switch to Single Mod Deep-Dive
+    view_radio.set_value(deep_dive_opt).run()
+    assert not at.exception, f"Exceptions after switching to Deep-Dive: {at.exception}"
+
+    # Verify selectbox is present
+    selectboxes = [sb for sb in at.selectbox if "Select Project to Inspect" in sb.label]
+    assert len(selectboxes) == 1, "Project inspect selectbox not found"
+    sb = selectboxes[0]
+
+    # Default selected project should be Dasik Library
+    deep_metrics = {m.label: m.value for m in at.metric}
+    assert any("Dasik Library Downloads" in k for k in deep_metrics)
+    assert any("41,167 DLs" in str(v) for v in deep_metrics.values())
+
+    # Switch selectbox to VO: Better Dogs
+    if "VO: Better Dogs" in sb.options:
+        sb.set_value("VO: Better Dogs").run()
+        assert not at.exception, f"Exceptions after selecting VO: Better Dogs: {at.exception}"
+        dog_metrics = {m.label: m.value for m in at.metric}
+        assert any("VO: Better Dogs Downloads" in k for k in dog_metrics)
+        assert any("31,034 DLs" in str(v) for v in dog_metrics.values())
+
+    # Switch back to Matrix
+    view_radio.set_value(matrix_opt).run()
+    assert not at.exception, f"Exceptions after returning to Matrix view: {at.exception}"
+
+
+def test_app_tab5_geography_controls(app_path: str):
+    """Verify Tab 5 geography metrics, metric radio toggles, and logarithmic checkbox."""
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+
+    assert not at.exception, f"AppTest encountered exceptions: {at.exception}"
+
+    metric_dict = {m.label: m.value for m in at.metric}
+
+    # Tab 5 KPI Cards
+    assert "Top Country" in metric_dict
+    assert "United States" in metric_dict["Top Country"]
+
+    assert "Identified Nations" in metric_dict
+    assert "38+ Countries" in metric_dict["Identified Nations"]
+
+    assert "Identified Traffic" in metric_dict
+    assert "23,911 DLs" in metric_dict["Identified Traffic"]
+
+    assert "Unresolved Telemetry" in metric_dict
+    assert "76,315 DLs" in metric_dict["Unresolved Telemetry"]
+
+    # Test Metric Toggle
+    radios = [r for r in at.radio if "Display Metric" in r.label]
+    assert len(radios) == 1, "Display Metric radio toggle not found"
+    metric_radio = radios[0]
+
+    # Switch to Playtime (Hours)
+    metric_radio.set_value("Playtime (Hours)").run()
+    assert not at.exception, f"Exceptions after switching to Playtime metric: {at.exception}"
+
+    # Toggle Logarithmic Color Scale
+    checkboxes = [cb for cb in at.checkbox if "Logarithmic" in cb.label]
+    assert len(checkboxes) == 1, "Logarithmic scale checkbox not found"
+    log_cb = checkboxes[0]
+
+    log_cb.check().run()
+    assert not at.exception, f"Exceptions after enabling log scale: {at.exception}"
+
+    log_cb.uncheck().run()
+    assert not at.exception, f"Exceptions after disabling log scale: {at.exception}"
+

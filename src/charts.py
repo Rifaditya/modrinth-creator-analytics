@@ -7,6 +7,7 @@ purple/cyan/emerald visual design standard.
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -822,3 +823,554 @@ def render_loader_donut_chart(loader_df: pd.DataFrame) -> go.Figure:
         height=480,
     )
     return fig
+
+
+def render_project_leaderboard_chart(project_summary_df: pd.DataFrame) -> go.Figure:
+    """Render horizontal bar chart ranking projects by total downloads.
+
+    Args:
+        project_summary_df: DataFrame with 'Project', 'Downloads', and optional 'Share %', 'Views'.
+
+    Returns:
+        Plotly Figure styled with violet-to-cyan gradient and value labels.
+    """
+    if (
+        project_summary_df.empty
+        or "Downloads" not in project_summary_df.columns
+        or "Project" not in project_summary_df.columns
+    ):
+        return _empty_figure("No project catalog telemetry available")
+
+    # Sort ascending for horizontal display so top project is at the top
+    plot_df = (
+        project_summary_df.sort_values("Downloads", ascending=True)
+        .reset_index(drop=True)
+    )
+
+    n = len(plot_df)
+    # Generate smooth gradient from cyan (#06B6D4) at bottom to violet (#8B5CF6) at top
+    colors = []
+    for i in range(n):
+        ratio = i / max(n - 1, 1)
+        r = int(6 + (139 - 6) * ratio)
+        g = int(182 + (92 - 182) * ratio)
+        b = int(212 + (246 - 212) * ratio)
+        colors.append(f"rgb({r}, {g}, {b})")
+
+    # Format text labels
+    if "Share %" in plot_df.columns:
+        text_labels = [
+            f"{v:,.0f} ({p:.1f}%)"
+            for v, p in zip(plot_df["Downloads"], plot_df["Share %"])
+        ]
+    else:
+        text_labels = [f"{v:,.0f}" for v in plot_df["Downloads"]]
+
+    customdata = (
+        plot_df[["Share %", "Views"]]
+        if {"Share %", "Views"}.issubset(plot_df.columns)
+        else None
+    )
+    hovertemplate = (
+        "<b>%{y}</b><br>Downloads: %{x:,.0f}<br>Share: %{customdata[0]:.1f}%<br>Views: %{customdata[1]:,.0f}<extra></extra>"
+        if customdata is not None
+        else "<b>%{y}</b><br>Downloads: %{x:,.0f}<extra></extra>"
+    )
+
+    fig = go.Figure(
+        go.Bar(
+            x=plot_df["Downloads"],
+            y=plot_df["Project"],
+            orientation="h",
+            marker=dict(
+                color=colors,
+                line=dict(color="#0F172A", width=1),
+            ),
+            text=text_labels,
+            textposition="outside",
+            textfont=dict(color=TEXT_COLOR, size=11),
+            customdata=customdata,
+            hovertemplate=hovertemplate,
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Project Download Catalog Leaderboard</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=80, t=60, b=40),
+        xaxis=dict(
+            title="Total Downloads",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            showgrid=False,
+            zeroline=False,
+        ),
+        showlegend=False,
+        height=max(500, n * 26),
+    )
+    return fig
+
+
+def render_dependent_modpacks_chart(
+    dep_df: pd.DataFrame, top_n: int = 12
+) -> go.Figure:
+    """Render horizontal bar chart of top dependent modpacks and consumer projects.
+
+    Args:
+        dep_df: DataFrame with 'Dependent project' and 'Downloads' columns.
+        top_n: Number of top dependent projects to display.
+
+    Returns:
+        Plotly Figure styled with emerald/amber markers and download count labels.
+    """
+    if (
+        dep_df.empty
+        or "Dependent project" not in dep_df.columns
+        or "Downloads" not in dep_df.columns
+    ):
+        return _empty_figure("No dependent modpack telemetry available")
+
+    # Exclude unresolved 'Unknown' consumer rows to isolate identified modpacks & mods
+    sub = dep_df[dep_df["Dependent project"] != "Unknown"]
+    if sub.empty:
+        return _empty_figure("No identified external dependent modpacks")
+
+    agg = (
+        sub.groupby("Dependent project", as_index=False)["Downloads"]
+        .sum()
+        .sort_values("Downloads", ascending=False)
+        .head(top_n)
+    )
+
+    # Sort ascending for horizontal bar display so highest volume is on top
+    plot_df = agg.sort_values("Downloads", ascending=True).reset_index(drop=True)
+
+    def _is_third_party(name: str) -> bool:
+        s = str(name).strip()
+        return not (
+            s.startswith("VO:")
+            or s.startswith("IG:")
+            or s.startswith("DG:")
+            or "Dasik" in s
+            or "gamerules" in s.lower()
+        )
+
+    # Emerald for external modpacks (Sensible MC, Legacies), amber for studio internal dependencies
+    colors = [
+        COLOR_EMERALD if _is_third_party(p) else COLOR_AMBER
+        for p in plot_df["Dependent project"]
+    ]
+
+    fig = go.Figure(
+        go.Bar(
+            x=plot_df["Downloads"],
+            y=plot_df["Dependent project"],
+            orientation="h",
+            marker=dict(
+                color=colors,
+                line=dict(color="#0F172A", width=1),
+            ),
+            text=[f"{v:,.0f}" for v in plot_df["Downloads"]],
+            textposition="outside",
+            textfont=dict(color=TEXT_COLOR, size=11),
+            hovertemplate="<b>%{y}</b><br>Attributed Downloads: %{x:,.0f}<extra></extra>",
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Top Dependent Modpacks & Ecosystem Consumers</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=70, t=60, b=40),
+        xaxis=dict(
+            title="Downloads Attributed",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            showgrid=False,
+            zeroline=False,
+        ),
+        showlegend=False,
+        height=max(420, len(plot_df) * 32),
+    )
+    return fig
+
+
+def render_single_project_velocity(
+    project_df: pd.DataFrame, project_name: str
+) -> go.Figure:
+    """Render daily downloads area curve over time for a single mod project.
+
+    Args:
+        project_df: DataFrame with 'Date', 'Project', and 'Downloads' columns.
+        project_name: The name of the project to isolate.
+
+    Returns:
+        Plotly Figure showing daily download trajectory.
+    """
+    if (
+        project_df.empty
+        or "Project" not in project_df.columns
+        or "Date" not in project_df.columns
+        or "Downloads" not in project_df.columns
+    ):
+        return _empty_figure(f"No velocity telemetry available for {project_name}")
+
+    sub = project_df[project_df["Project"] == project_name]
+    if sub.empty:
+        return _empty_figure(f"No velocity telemetry available for {project_name}")
+
+    daily = (
+        sub.groupby("Date", as_index=False)["Downloads"]
+        .sum()
+        .sort_values("Date")
+        .reset_index(drop=True)
+    )
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=daily["Date"],
+            y=daily["Downloads"],
+            name="Daily Downloads",
+            mode="lines",
+            fill="tozeroy",
+            line=dict(
+                color=COLOR_PURPLE,
+                width=2.5,
+                shape="spline",
+            ),
+            fillcolor="rgba(139, 92, 246, 0.15)",
+            hovertemplate="<b>%{x|%b %d, %Y}</b><br>Downloads: %{y:,.0f}<extra></extra>",
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text=f"<b>Daily Velocity: {project_name}</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=60, b=40),
+        hovermode="x unified",
+        showlegend=False,
+        height=380,
+    )
+    fig.update_xaxes(showgrid=True, gridcolor=GRID_COLOR, zeroline=False)
+    fig.update_yaxes(
+        title="Downloads",
+        title_font=dict(size=12, color=COLOR_PURPLE),
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+    )
+    return fig
+
+
+def render_project_version_adoption_chart(
+    project_version_df: pd.DataFrame, project_name: str
+) -> go.Figure:
+    """Render vertical bar chart of downloads by project version for a single mod.
+
+    Args:
+        project_version_df: DataFrame with 'Project', 'Project version', and 'Downloads'.
+        project_name: Target project name to filter by.
+
+    Returns:
+        Plotly Figure showing top release version adoption.
+    """
+    if (
+        project_version_df.empty
+        or "Project" not in project_version_df.columns
+        or "Project version" not in project_version_df.columns
+        or "Downloads" not in project_version_df.columns
+    ):
+        return _empty_figure(f"No version telemetry available for {project_name}")
+
+    sub = project_version_df[project_version_df["Project"] == project_name]
+    if sub.empty:
+        return _empty_figure(f"No version telemetry available for {project_name}")
+
+    total_mod_dls = sub["Downloads"].sum()
+    agg = (
+        sub.groupby("Project version", as_index=False)["Downloads"]
+        .sum()
+        .sort_values("Downloads", ascending=False)
+        .head(10)
+        .reset_index(drop=True)
+    )
+
+    agg["Percentage"] = (
+        (agg["Downloads"] / total_mod_dls * 100.0) if total_mod_dls > 0 else 0.0
+    )
+
+    fig = go.Figure(
+        go.Bar(
+            x=agg["Project version"],
+            y=agg["Downloads"],
+            marker=dict(
+                color=COLOR_CYAN,
+                line=dict(color="#0F172A", width=1),
+            ),
+            text=[f"{v:,.0f}" for v in agg["Downloads"]],
+            textposition="outside",
+            textfont=dict(color=TEXT_COLOR, size=11),
+            customdata=agg["Percentage"],
+            hovertemplate="<b>v%{x}</b><br>Downloads: %{y:,.0f}<br>Share: %{customdata:.1f}%<extra></extra>",
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text=f"<b>Version Adoption (Top Releases): {project_name}</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=60, b=40),
+        xaxis=dict(
+            title="Project Release Version",
+            showgrid=False,
+            zeroline=False,
+            type="category",
+        ),
+        yaxis=dict(
+            title="Downloads",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        showlegend=False,
+        height=380,
+    )
+    return fig
+
+
+def render_world_choropleth_map(
+    country_df: pd.DataFrame, metric: str = "Downloads", use_log: bool = False
+) -> go.Figure:
+    """Render global choropleth map of creator audience across verified countries.
+
+    Args:
+        country_df: DataFrame with 'Country' and metric columns ('Downloads', 'Playtime (seconds)').
+        metric: Metric string to display ('Downloads' or 'Playtime (Hours)').
+        use_log: Whether to use a logarithmic scale for color mapping.
+
+    Returns:
+        Plotly Figure with natural earth choropleth projection.
+    """
+    if country_df.empty or "Country" not in country_df.columns:
+        return _empty_figure("No geographic country telemetry available")
+
+    # Exclude 'Other' unresolved launcher pulls to render clean sovereign boundaries
+    sub = country_df[country_df["Country"] != "Other"].copy()
+    if sub.empty:
+        return _empty_figure("No resolved country telemetry available")
+
+    if metric == "Playtime (Hours)":
+        if "Playtime (Hours)" not in sub.columns:
+            if "Playtime (seconds)" in sub.columns:
+                sub["Playtime (Hours)"] = sub["Playtime (seconds)"] / 3600.0
+            else:
+                sub["Playtime (Hours)"] = 0.0
+        val_col = "Playtime (Hours)"
+        unit = "Hours"
+    else:
+        if "Downloads" not in sub.columns:
+            sub["Downloads"] = 0
+        val_col = "Downloads"
+        unit = "DLs"
+
+    agg = sub.groupby("Country", as_index=False)[val_col].sum()
+
+    if use_log:
+        z_vals = np.log10(np.clip(agg[val_col], a_min=0, a_max=None) + 1.0)
+        colorbar_title = f"Log10({unit})"
+    else:
+        z_vals = agg[val_col]
+        colorbar_title = unit
+
+    hover_texts = [
+        (
+            f"<b>{c}</b><br>{metric}: {v:,.1f} {unit}"
+            if metric == "Playtime (Hours)"
+            else f"<b>{c}</b><br>{metric}: {int(v):,} {unit}"
+        )
+        for c, v in zip(agg["Country"], agg[val_col])
+    ]
+
+    fig = go.Figure(
+        go.Choropleth(
+            locations=agg["Country"],
+            locationmode="country names",
+            z=z_vals,
+            text=hover_texts,
+            hoverinfo="text",
+            colorscale=[
+                [0.0, "#1E1B4B"],
+                [0.2, "#312E81"],
+                [0.4, "#4C1D95"],
+                [0.6, "#7C3AED"],
+                [0.8, "#8B5CF6"],
+                [1.0, "#06B6D4"],
+            ],
+            marker_line_color="#334155",
+            marker_line_width=0.6,
+            colorbar=dict(
+                title=dict(
+                    text=colorbar_title,
+                    font=dict(color=TEXT_COLOR, size=11),
+                ),
+                tickfont=dict(color=TEXT_MUTED, size=10),
+                len=0.75,
+                bgcolor="rgba(15, 23, 42, 0.75)",
+                bordercolor=GRID_COLOR,
+                borderwidth=1,
+            ),
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text=f"<b>Global Creator Audience Distribution ({metric})</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_TRANSPARENT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=0, r=0, t=50, b=0),
+        geo=dict(
+            bgcolor=BG_TRANSPARENT,
+            lakecolor="#0F172A",
+            landcolor="#1E293B",
+            oceancolor="#0F172A",
+            showocean=True,
+            showlakes=True,
+            projection_type="natural earth",
+            showcoastlines=True,
+            coastlinewidth=0.5,
+            coastlinecolor="#334155",
+            showframe=False,
+        ),
+        height=500,
+    )
+    return fig
+
+
+def render_top_countries_bar_chart(
+    country_df: pd.DataFrame, metric: str = "Downloads"
+) -> go.Figure:
+    """Render horizontal bar chart of top countries by the chosen metric.
+
+    Args:
+        country_df: DataFrame with 'Country' and metric columns.
+        metric: Metric string ('Downloads' or 'Playtime (Hours)').
+
+    Returns:
+        Plotly Figure showing top nations ranked with value labels.
+    """
+    if country_df.empty or "Country" not in country_df.columns:
+        return _empty_figure("No country breakdown telemetry available")
+
+    sub = country_df[country_df["Country"] != "Other"].copy()
+    if sub.empty:
+        return _empty_figure("No resolved country telemetry available")
+
+    if metric == "Playtime (Hours)":
+        if "Playtime (Hours)" not in sub.columns:
+            if "Playtime (seconds)" in sub.columns:
+                sub["Playtime (Hours)"] = sub["Playtime (seconds)"] / 3600.0
+            else:
+                sub["Playtime (Hours)"] = 0.0
+        val_col = "Playtime (Hours)"
+        fmt = lambda v: f"{v:,.1f}h"
+    else:
+        if "Downloads" not in sub.columns:
+            sub["Downloads"] = 0
+        val_col = "Downloads"
+        fmt = lambda v: f"{int(v):,}"
+
+    agg = (
+        sub.groupby("Country", as_index=False)[val_col]
+        .sum()
+        .sort_values(val_col, ascending=False)
+        .head(10)
+    )
+
+    plot_df = agg.sort_values(val_col, ascending=True).reset_index(drop=True)
+
+    fig = go.Figure(
+        go.Bar(
+            x=plot_df[val_col],
+            y=plot_df["Country"],
+            orientation="h",
+            marker=dict(
+                color=COLOR_CYAN,
+                line=dict(color="#0F172A", width=1),
+            ),
+            text=[fmt(v) for v in plot_df[val_col]],
+            textposition="outside",
+            textfont=dict(color=TEXT_COLOR, size=11),
+            hovertemplate=f"<b>%{{y}}</b><br>{metric}: %{{x:,.1f}}<extra></extra>",
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text=f"<b>Top Countries by {metric}</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=60, t=60, b=40),
+        xaxis=dict(
+            title=metric,
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            showgrid=False,
+            zeroline=False,
+        ),
+        showlegend=False,
+        height=max(380, len(plot_df) * 36),
+    )
+    return fig
+
