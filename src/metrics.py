@@ -175,3 +175,170 @@ def project_milestone_earnings(
         "projected_monetized_downloads": projected_monetized_downloads,
         "projected_monetized_earnings": projected_monetized_earnings,
     }
+
+
+def calculate_source_kpis(
+    source_df: pd.DataFrame, reason_df: pd.DataFrame
+) -> Dict[str, Any]:
+    """Calculate key acquisition source and distribution reason indicators.
+
+    Args:
+        source_df: DataFrame with 'Download source' and 'Downloads' columns.
+        reason_df: DataFrame with 'Download reason' and 'Downloads' columns.
+
+    Returns:
+        Dictionary containing key metrics:
+            - total_source_downloads: Total downloads from sources table
+            - modrinth_app_downloads: Total downloads via Modrinth App
+            - modrinth_app_pct: Percentage of downloads via Modrinth App
+            - modrinth_website_downloads: Total downloads via Modrinth Website
+            - modrinth_website_pct: Percentage of downloads via Modrinth Website
+            - prism_launcher_downloads: Total downloads via Prism Launcher
+            - prism_launcher_pct: Percentage of downloads via Prism Launcher
+            - native_channels_downloads: Total native downloads (App + Website)
+            - native_channels_pct: Percentage of native channels (App + Website)
+            - total_reason_downloads: Total downloads in reason table
+            - ecosystem_downloads: Total ecosystem downloads (Modpack + Dependency)
+            - ecosystem_pct: Percentage of ecosystem downloads (Modpack + Dependency)
+            - modpack_downloads: Downloads attributed to modpacks
+            - dependency_downloads: Downloads attributed to mod dependencies
+    """
+    total_src = (
+        int(source_df["Downloads"].sum())
+        if not source_df.empty and "Downloads" in source_df.columns
+        else 0
+    )
+    if total_src > 0 and "Download source" in source_df.columns:
+        s_agg = source_df.groupby("Download source")["Downloads"].sum().to_dict()
+    else:
+        s_agg = {}
+
+    ma = int(s_agg.get("Modrinth App", 0))
+    mw = int(s_agg.get("Modrinth Website", 0))
+    pl = int(s_agg.get("Prism Launcher", 0))
+    native_dls = ma + mw
+
+    total_reason = (
+        int(reason_df["Downloads"].sum())
+        if not reason_df.empty and "Downloads" in reason_df.columns
+        else 0
+    )
+    if total_reason > 0 and "Download reason" in reason_df.columns:
+        r_agg = reason_df.groupby("Download reason")["Downloads"].sum().to_dict()
+    else:
+        r_agg = {}
+
+    mp = int(r_agg.get("Modpack", 0))
+    dep = int(r_agg.get("Dependency", 0))
+    eco_dls = mp + dep
+
+    return {
+        "total_source_downloads": total_src,
+        "modrinth_app_downloads": ma,
+        "modrinth_app_pct": (ma / total_src * 100.0) if total_src > 0 else 0.0,
+        "modrinth_website_downloads": mw,
+        "modrinth_website_pct": (mw / total_src * 100.0) if total_src > 0 else 0.0,
+        "prism_launcher_downloads": pl,
+        "prism_launcher_pct": (pl / total_src * 100.0) if total_src > 0 else 0.0,
+        "native_channels_downloads": native_dls,
+        "native_channels_pct": (native_dls / total_src * 100.0) if total_src > 0 else 0.0,
+        "total_reason_downloads": total_reason,
+        "ecosystem_downloads": eco_dls,
+        "ecosystem_pct": (eco_dls / total_reason * 100.0) if total_reason > 0 else 0.0,
+        "modpack_downloads": mp,
+        "dependency_downloads": dep,
+    }
+
+
+def calculate_version_kpis(
+    game_version_df: pd.DataFrame,
+    project_version_df: Optional[pd.DataFrame] = None,
+    use_enriched: bool = True,
+) -> Dict[str, Any]:
+    """Calculate Minecraft version demographics and generational anchor metrics.
+
+    Args:
+        game_version_df: Raw game_version DataFrame.
+        project_version_df: Optional enriched project_version DataFrame.
+        use_enriched: Whether to prioritize enriched project version data over raw telemetry.
+
+    Returns:
+        Dictionary containing key metrics:
+            - total_version_downloads: Total downloads analyzed
+            - lead_version: Name of sovereign lead anchor ("Minecraft 26.2")
+            - lead_downloads: Cumulative downloads on 26.2
+            - lead_pct: Share of 26.2 downloads
+            - modern_26x_downloads: Total downloads on 26.x anchors
+            - modern_26x_pct: Share of 26.x downloads
+            - legacy_downloads: Total downloads on 1.21.x and 1.20.1 anchors
+            - legacy_pct: Share of legacy LTS anchors
+            - unknown_downloads: Total unresolved downloads
+            - unknown_pct: Share of unresolved downloads
+    """
+    if (
+        use_enriched
+        and project_version_df is not None
+        and not project_version_df.empty
+        and "Target Game Version" in project_version_df.columns
+        and "Downloads" in project_version_df.columns
+    ):
+        df = project_version_df
+        col = "Target Game Version"
+    elif (
+        not game_version_df.empty
+        and "Game version" in game_version_df.columns
+        and "Downloads" in game_version_df.columns
+    ):
+        df = game_version_df
+        col = "Game version"
+    else:
+        return {
+            "total_version_downloads": 0,
+            "lead_version": "Minecraft 26.2",
+            "lead_downloads": 0,
+            "lead_pct": 0.0,
+            "modern_26x_downloads": 0,
+            "modern_26x_pct": 0.0,
+            "legacy_downloads": 0,
+            "legacy_pct": 0.0,
+            "unknown_downloads": 0,
+            "unknown_pct": 0.0,
+        }
+
+    total_dls = int(df["Downloads"].sum())
+    if total_dls == 0:
+        return {
+            "total_version_downloads": 0,
+            "lead_version": "Minecraft 26.2",
+            "lead_downloads": 0,
+            "lead_pct": 0.0,
+            "modern_26x_downloads": 0,
+            "modern_26x_pct": 0.0,
+            "legacy_downloads": 0,
+            "legacy_pct": 0.0,
+            "unknown_downloads": 0,
+            "unknown_pct": 0.0,
+        }
+
+    agg = df.groupby(col)["Downloads"].sum().to_dict()
+    lead_dls = int(agg.get("26.2", 0))
+    modern_26x = sum(int(v) for k, v in agg.items() if str(k).startswith("26."))
+    legacy = sum(
+        int(v)
+        for k, v in agg.items()
+        if str(k).startswith("1.21") or str(k).startswith("1.20")
+    )
+    unknown = sum(int(v) for k, v in agg.items() if "unknown" in str(k).lower())
+
+    return {
+        "total_version_downloads": total_dls,
+        "lead_version": "Minecraft 26.2",
+        "lead_downloads": lead_dls,
+        "lead_pct": (lead_dls / total_dls * 100.0) if total_dls > 0 else 0.0,
+        "modern_26x_downloads": modern_26x,
+        "modern_26x_pct": (modern_26x / total_dls * 100.0) if total_dls > 0 else 0.0,
+        "legacy_downloads": legacy,
+        "legacy_pct": (legacy / total_dls * 100.0) if total_dls > 0 else 0.0,
+        "unknown_downloads": unknown,
+        "unknown_pct": (unknown / total_dls * 100.0) if total_dls > 0 else 0.0,
+    }

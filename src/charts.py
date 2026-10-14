@@ -6,6 +6,7 @@ purple/cyan/emerald visual design standard.
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -21,6 +22,70 @@ COLOR_PURPLE = "#8B5CF6"  # Komikku violet
 COLOR_CYAN = "#06B6D4"    # Cyber cyan
 COLOR_EMERALD = "#10B981" # Emerald profit
 COLOR_SLATE = "#64748B"   # Slate unmonetized
+COLOR_AMBER = "#F59E0B"   # Amber warning/legacy
+COLOR_PINK = "#EC4899"    # Pink accent
+COLOR_INDIGO = "#6366F1"  # Indigo accent
+COLOR_FUCHSIA = "#D946EF" # Fuchsia accent
+COLOR_BLUE = "#3B82F6"    # Blue accent
+COLOR_TEAL = "#14B8A6"    # Teal accent
+COLOR_LAVENDER = "#A78BFA"# Lavender modern
+
+SOURCE_COLOR_MAP: Dict[str, str] = {
+    "Modrinth App": "#8B5CF6",       # Studio violet
+    "Modrinth Website": "#06B6D4",   # Cyber cyan
+    "Prism Launcher": "#10B981",     # Emerald
+    "PCL2": "#F59E0B",               # Amber
+    "Lunar Client": "#EC4899",       # Pink
+    "Dawn": "#A855F7",               # Purple
+    "Unknown": "#64748B",            # Slate
+    "ATLauncher": "#3B82F6",         # Blue
+    "Modrinth Hosting": "#14B8A6",   # Teal
+    "HMCL": "#EAB308",               # Yellow
+    "FCL": "#6366F1",                # Indigo
+    "PojavLauncher": "#F97316",      # Orange
+    "Feather Client": "#22C55E",     # Green
+    "NoRisk Client": "#D946EF",      # Fuchsia
+    "PolyMC": "#0284C7",             # Sky
+}
+
+REASON_COLOR_MAP: Dict[str, str] = {
+    "Standalone": "#06B6D4",
+    "Modpack": "#8B5CF6",
+    "Update": "#10B981",
+    "Dependency": "#F59E0B",
+    "Unknown": "#64748B",
+}
+
+LOADER_COLOR_MAP: Dict[str, str] = {
+    "Fabric": "#8B5CF6",
+    "Unknown": "#64748B",
+    "NeoForge": "#F59E0B",
+    "Forge": "#06B6D4",
+    "Quilt": "#EC4899",
+}
+
+
+def get_version_color(version_str: str) -> str:
+    """Return theme color mapped to Minecraft generational anchor."""
+    v = str(version_str).strip().lower()
+    if v == "26.2":
+        return "#8B5CF6"  # Sovereign Lead Violet
+    elif v == "26.1.2":
+        return "#A78BFA"  # Violet lighter
+    elif v.startswith("26.3"):
+        return "#06B6D4"  # Cyber Cyan
+    elif v == "26.1":
+        return "#38BDF8"  # Light Cyan
+    elif v.startswith("26."):
+        return "#818CF8"  # Indigo (26.x snapshots / pre-releases)
+    elif v.startswith("1.21"):
+        return "#10B981"  # Emerald
+    elif v.startswith("1.20"):
+        return "#F59E0B"  # Amber
+    elif "unknown" in v:
+        return "#64748B"  # Slate
+    else:
+        return "#64748B"  # Slate for other / build versions
 
 
 def _empty_figure(message: str = "No data available") -> go.Figure:
@@ -301,4 +366,459 @@ def render_daily_downloads_chart(project_df: pd.DataFrame) -> go.Figure:
         zeroline=False,
     )
 
+    return fig
+
+
+def render_download_sources_chart(source_df: pd.DataFrame) -> go.Figure:
+    """Render horizontal bar chart of download sources sorted descending.
+
+    Args:
+        source_df: DataFrame with 'Download source' and 'Downloads' columns.
+
+    Returns:
+        Plotly Figure showing download volumes per launcher and acquisition channel.
+    """
+    if (
+        source_df.empty
+        or "Downloads" not in source_df.columns
+        or "Download source" not in source_df.columns
+    ):
+        return _empty_figure("No download source telemetry available")
+
+    agg = (
+        source_df.groupby("Download source", as_index=False)["Downloads"]
+        .sum()
+        .sort_values("Downloads", ascending=False)
+        .reset_index(drop=True)
+    )
+    total_dls = agg["Downloads"].sum()
+    if total_dls == 0:
+        return _empty_figure("No download source telemetry available")
+
+    # If more than 12 sources, retain top 11 and bucket remainder into 'Other Launchers'
+    if len(agg) > 12:
+        top_slice = agg.head(11).copy()
+        other_sum = int(agg.iloc[11:]["Downloads"].sum())
+        other_df = pd.DataFrame(
+            [{"Download source": "Other Launchers", "Downloads": other_sum}]
+        )
+        plot_df = pd.concat([top_slice, other_df], ignore_index=True)
+    else:
+        plot_df = agg.copy()
+
+    plot_df["Percentage"] = plot_df["Downloads"] / total_dls * 100.0
+    # Ascending sort so highest volume appears at the top in horizontal layout
+    plot_df = plot_df.sort_values("Downloads", ascending=True).reset_index(drop=True)
+
+    colors = [
+        SOURCE_COLOR_MAP.get(src, "#64748B" if "Other" in src else "#94A3B8")
+        for src in plot_df["Download source"]
+    ]
+
+    fig = go.Figure(
+        go.Bar(
+            x=plot_df["Downloads"],
+            y=plot_df["Download source"],
+            orientation="h",
+            marker=dict(
+                color=colors,
+                line=dict(color="#0F172A", width=1),
+            ),
+            text=[
+                f"{v:,.0f} ({p:.1f}%)"
+                for v, p in zip(plot_df["Downloads"], plot_df["Percentage"])
+            ],
+            textposition="outside",
+            textfont=dict(color=TEXT_COLOR, size=11),
+            customdata=plot_df["Percentage"],
+            hovertemplate="<b>%{y}</b><br>Downloads: %{x:,.0f}<br>Share: %{customdata:.1f}%<extra></extra>",
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Downloads by Launcher & Acquisition Source</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=80, t=60, b=40),
+        xaxis=dict(
+            title="Downloads",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            showgrid=False,
+            zeroline=False,
+        ),
+        showlegend=False,
+        height=520,
+    )
+    return fig
+
+
+def render_download_reasons_chart(reason_df: pd.DataFrame) -> go.Figure:
+    """Render donut chart of download reasons (Standalone, Modpack, Update, Dependency, Unknown).
+
+    Args:
+        reason_df: DataFrame with 'Download reason' and 'Downloads' columns.
+
+    Returns:
+        Plotly Figure illustrating distribution by installation reason with center annotation.
+    """
+    if (
+        reason_df.empty
+        or "Downloads" not in reason_df.columns
+        or "Download reason" not in reason_df.columns
+    ):
+        return _empty_figure("No download reason telemetry available")
+
+    agg = (
+        reason_df.groupby("Download reason", as_index=False)["Downloads"]
+        .sum()
+        .sort_values("Downloads", ascending=False)
+        .reset_index(drop=True)
+    )
+    total_dls = agg["Downloads"].sum()
+    if total_dls == 0:
+        return _empty_figure("No download reason telemetry available")
+
+    colors = [REASON_COLOR_MAP.get(r, "#94A3B8") for r in agg["Download reason"]]
+
+    # Ecosystem installs = Modpack + Dependency
+    eco_mask = agg["Download reason"].isin(["Modpack", "Dependency"])
+    eco_dls = agg.loc[eco_mask, "Downloads"].sum()
+    eco_pct = (eco_dls / total_dls * 100.0) if total_dls > 0 else 0.0
+
+    fig = go.Figure(
+        go.Pie(
+            labels=agg["Download reason"],
+            values=agg["Downloads"],
+            hole=0.60,
+            marker=dict(
+                colors=colors,
+                line=dict(color="#0F172A", width=2),
+            ),
+            textinfo="percent+label",
+            textfont=dict(color=TEXT_COLOR, size=11),
+            hovertemplate="<b>%{label}</b><br>Downloads: %{value:,.0f}<br>Share: %{percent}<extra></extra>",
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Download Reason Breakdown</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_TRANSPARENT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=20, r=20, t=60, b=30),
+        showlegend=False,
+        annotations=[
+            dict(
+                text=(
+                    f"<b style='font-size:24px;color:{COLOR_PURPLE}'>"
+                    f"{eco_pct:.1f}%</b><br>"
+                    f"<span style='font-size:11px;color:{TEXT_MUTED}'>Ecosystem Installs<br>(Modpack + Dep)</span>"
+                ),
+                x=0.5,
+                y=0.5,
+                showarrow=False,
+                font=dict(family="Inter, system-ui, sans-serif"),
+            )
+        ],
+        height=520,
+    )
+    return fig
+
+
+def render_game_versions_chart(
+    game_version_df: pd.DataFrame,
+    enriched_pv_df: Optional[pd.DataFrame] = None,
+    use_enriched: bool = True,
+) -> go.Figure:
+    """Render vertical bar chart of Minecraft version adoption.
+
+    Args:
+        game_version_df: Raw game_version DataFrame.
+        enriched_pv_df: Optional enriched project_version DataFrame.
+        use_enriched: Whether to prioritize enriched project version data over raw telemetry.
+
+    Returns:
+        Plotly Figure showing version volume with anchor-calibrated palette.
+    """
+    if (
+        use_enriched
+        and enriched_pv_df is not None
+        and not enriched_pv_df.empty
+        and "Target Game Version" in enriched_pv_df.columns
+        and "Downloads" in enriched_pv_df.columns
+    ):
+        target_df = enriched_pv_df
+        ver_col = "Target Game Version"
+        title_tag = "Enriched Engine"
+    elif (
+        not game_version_df.empty
+        and "Game version" in game_version_df.columns
+        and "Downloads" in game_version_df.columns
+    ):
+        target_df = game_version_df
+        ver_col = "Game version"
+        title_tag = "Raw Telemetry"
+    else:
+        return _empty_figure("No game version telemetry available")
+
+    agg = (
+        target_df.groupby(ver_col, as_index=False)["Downloads"]
+        .sum()
+        .sort_values("Downloads", ascending=False)
+        .reset_index(drop=True)
+    )
+    total_dls = agg["Downloads"].sum()
+    if total_dls == 0:
+        return _empty_figure("No game version telemetry available")
+
+    # If more than 10 versions, retain top 9 and bucket rest into 'Other Snapshots'
+    if len(agg) > 10:
+        top_slice = agg.head(9).copy()
+        other_sum = int(agg.iloc[9:]["Downloads"].sum())
+        other_df = pd.DataFrame([{ver_col: "Other Snapshots", "Downloads": other_sum}])
+        plot_df = pd.concat([top_slice, other_df], ignore_index=True)
+    else:
+        plot_df = agg.copy()
+
+    plot_df["Percentage"] = plot_df["Downloads"] / total_dls * 100.0
+    colors = [get_version_color(v) for v in plot_df[ver_col]]
+
+    fig = go.Figure(
+        go.Bar(
+            x=plot_df[ver_col],
+            y=plot_df["Downloads"],
+            marker=dict(
+                color=colors,
+                line=dict(color="#0F172A", width=1),
+            ),
+            text=[f"{v:,.0f}" for v in plot_df["Downloads"]],
+            textposition="outside",
+            textfont=dict(color=TEXT_COLOR, size=11),
+            customdata=plot_df["Percentage"],
+            hovertemplate="<b>MC %{x}</b><br>Downloads: %{y:,.0f}<br>Share: %{customdata:.1f}%<extra></extra>",
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text=f"<b>Minecraft Version Adoption ({title_tag})</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=60, b=40),
+        xaxis=dict(
+            title="Target Minecraft Anchor",
+            showgrid=False,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            title="Downloads",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        showlegend=False,
+        height=480,
+    )
+    return fig
+
+
+def render_game_version_timeline_chart(
+    df: pd.DataFrame, version_col: str = "Target Game Version"
+) -> go.Figure:
+    """Render daily stacked area chart showing top 5 game versions over time.
+
+    Args:
+        df: DataFrame containing 'Date', 'Downloads', and a version column.
+        version_col: Column name identifying the Minecraft version.
+
+    Returns:
+        Plotly Figure with smooth stacked area curves.
+    """
+    if df.empty or "Date" not in df.columns or "Downloads" not in df.columns:
+        return _empty_figure("No version timeline data available")
+
+    # Fallback column resolution
+    if version_col not in df.columns:
+        if "Target Game Version" in df.columns:
+            version_col = "Target Game Version"
+        elif "Game version" in df.columns:
+            version_col = "Game version"
+        else:
+            return _empty_figure("No version column found in timeline data")
+
+    # Identify top 5 versions by cumulative downloads
+    top_versions = (
+        df.groupby(version_col)["Downloads"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(5)
+        .index.tolist()
+    )
+
+    if not top_versions:
+        return _empty_figure("No version data available for timeline")
+
+    sub_df = df[df[version_col].isin(top_versions)].copy()
+    timeline = (
+        sub_df.groupby(["Date", version_col], as_index=False)["Downloads"]
+        .sum()
+    )
+
+    pivot = (
+        timeline.pivot(index="Date", columns=version_col, values="Downloads")
+        .fillna(0)
+        .sort_index()
+    )
+
+    fig = go.Figure()
+
+    for v in top_versions:
+        if v not in pivot.columns:
+            continue
+        color = get_version_color(v)
+        fig.add_trace(
+            go.Scatter(
+                x=pivot.index,
+                y=pivot[v],
+                name=f"MC {v}",
+                mode="lines",
+                stackgroup="one",
+                line=dict(color=color, width=1.5),
+                hovertemplate=f"<b>MC {v}</b>: %{{y:,.0f}} DLs<extra></extra>",
+            )
+        )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Game Version Adoption Velocity (Top 5 Anchors Over Time)</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=60, b=40),
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(30, 41, 59, 0.7)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=11),
+        ),
+        xaxis=dict(
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            title="Daily Downloads",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        height=450,
+    )
+    return fig
+
+
+def render_loader_donut_chart(loader_df: pd.DataFrame) -> go.Figure:
+    """Render donut chart showing Fabric vs Unknown mod loader distribution.
+
+    Args:
+        loader_df: DataFrame with 'Loader' and 'Downloads' columns.
+
+    Returns:
+        Plotly Figure showing loader shares with center annotation.
+    """
+    if (
+        loader_df.empty
+        or "Downloads" not in loader_df.columns
+        or "Loader" not in loader_df.columns
+    ):
+        return _empty_figure("No mod loader telemetry available")
+
+    agg = (
+        loader_df.groupby("Loader", as_index=False)["Downloads"]
+        .sum()
+        .sort_values("Downloads", ascending=False)
+        .reset_index(drop=True)
+    )
+    total_dls = agg["Downloads"].sum()
+    if total_dls == 0:
+        return _empty_figure("No mod loader telemetry available")
+
+    colors = [LOADER_COLOR_MAP.get(ldr, "#94A3B8") for ldr in agg["Loader"]]
+
+    fig = go.Figure(
+        go.Pie(
+            labels=agg["Loader"],
+            values=agg["Downloads"],
+            hole=0.62,
+            marker=dict(
+                colors=colors,
+                line=dict(color="#0F172A", width=2),
+            ),
+            textinfo="percent+label",
+            textfont=dict(color=TEXT_COLOR, size=12),
+            hovertemplate="<b>%{label}</b><br>Downloads: %{value:,.0f}<br>Share: %{percent}<extra></extra>",
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Mod Loader Distribution</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_TRANSPARENT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=20, r=20, t=60, b=30),
+        showlegend=False,
+        annotations=[
+            dict(
+                text=(
+                    f"<b style='font-size:22px;color:{COLOR_PURPLE}'>Fabric 100%</b><br>"
+                    f"<span style='font-size:11px;color:{TEXT_MUTED}'>Identified Runtime</span>"
+                ),
+                x=0.5,
+                y=0.5,
+                showarrow=False,
+                font=dict(family="Inter, system-ui, sans-serif"),
+            )
+        ],
+        height=480,
+    )
     return fig

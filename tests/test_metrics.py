@@ -6,13 +6,20 @@ import pandas as pd
 from src.loader import ModrinthDataBundle, load_all_data
 from src.metrics import (
     calculate_kpis,
+    calculate_source_kpis,
+    calculate_version_kpis,
     filter_bundle_by_date,
     project_milestone_earnings,
 )
 from src.charts import (
-    render_revenue_velocity_chart,
-    render_monetization_donut_chart,
     render_daily_downloads_chart,
+    render_download_reasons_chart,
+    render_download_sources_chart,
+    render_game_version_timeline_chart,
+    render_game_versions_chart,
+    render_loader_donut_chart,
+    render_monetization_donut_chart,
+    render_revenue_velocity_chart,
 )
 
 
@@ -98,8 +105,59 @@ def test_project_milestone_earnings():
     assert abs(proj["projected_monetized_downloads"] - 49682.7) < 1.0
 
 
+def test_calculate_source_kpis(bundle: ModrinthDataBundle):
+    """Verify acquisition source KPIs match empirical Modrinth telemetry."""
+    src = calculate_source_kpis(bundle.download_source, bundle.download_reason)
+
+    assert src["total_source_downloads"] == 100226
+    assert src["modrinth_app_downloads"] == 44055
+    assert abs(src["modrinth_app_pct"] - 43.955) < 0.01
+
+    assert src["modrinth_website_downloads"] == 17845
+    assert abs(src["modrinth_website_pct"] - 17.804) < 0.01
+
+    assert src["prism_launcher_downloads"] == 16332
+    assert abs(src["prism_launcher_pct"] - 16.295) < 0.01
+
+    assert src["native_channels_downloads"] == 44055 + 17845
+    assert abs(src["native_channels_pct"] - 61.76) < 0.02
+
+    assert src["ecosystem_downloads"] == 28031
+    assert abs(src["ecosystem_pct"] - 27.967) < 0.01
+
+
+def test_calculate_version_kpis(bundle: ModrinthDataBundle):
+    """Verify version demographics calculations for both enriched and raw modes."""
+    # Enriched Mode
+    enriched = calculate_version_kpis(
+        bundle.game_version, bundle.project_version, use_enriched=True
+    )
+    assert enriched["total_version_downloads"] == 100226
+    assert enriched["lead_downloads"] == 32556
+    assert abs(enriched["lead_pct"] - 32.48) < 0.02
+    assert enriched["modern_26x_downloads"] == 92541
+    assert abs(enriched["modern_26x_pct"] - 92.33) < 0.02
+    assert enriched["legacy_downloads"] == 7492
+    assert abs(enriched["legacy_pct"] - 7.47) < 0.02
+    assert enriched["unknown_downloads"] == 189
+
+    # Raw Mode
+    raw = calculate_version_kpis(
+        bundle.game_version, bundle.project_version, use_enriched=False
+    )
+    assert raw["total_version_downloads"] == 100226
+    assert raw["lead_downloads"] == 33832
+    assert abs(raw["lead_pct"] - 33.75) < 0.02
+    assert raw["modern_26x_downloads"] == 57487
+    assert abs(raw["modern_26x_pct"] - 57.35) < 0.02
+    assert raw["legacy_downloads"] == 3956
+    assert abs(raw["legacy_pct"] - 3.94) < 0.02
+    assert raw["unknown_downloads"] == 38775
+
+
 def test_charts_render_cleanly(bundle: ModrinthDataBundle):
     """Verify Plotly figure rendering functions generate valid figures."""
+    # Tab 1 charts
     fig_rev = render_revenue_velocity_chart(bundle.member)
     assert fig_rev is not None
     assert len(fig_rev.data) == 2  # Bar and Scatter traces
@@ -112,6 +170,38 @@ def test_charts_render_cleanly(bundle: ModrinthDataBundle):
     assert fig_dls is not None
     assert len(fig_dls.data) == 1  # Scatter area trace
 
+    # Tab 2 charts
+    fig_sources = render_download_sources_chart(bundle.download_source)
+    assert fig_sources is not None
+    assert len(fig_sources.data) == 1  # Horizontal bar
+
+    fig_reasons = render_download_reasons_chart(bundle.download_reason)
+    assert fig_reasons is not None
+    assert len(fig_reasons.data) == 1  # Pie donut
+
+    # Tab 3 charts
+    fig_ver_enriched = render_game_versions_chart(
+        bundle.game_version, bundle.project_version, use_enriched=True
+    )
+    assert fig_ver_enriched is not None
+    assert len(fig_ver_enriched.data) == 1  # Vertical bar
+
+    fig_ver_raw = render_game_versions_chart(
+        bundle.game_version, bundle.project_version, use_enriched=False
+    )
+    assert fig_ver_raw is not None
+    assert len(fig_ver_raw.data) == 1
+
+    fig_timeline = render_game_version_timeline_chart(
+        bundle.project_version, version_col="Target Game Version"
+    )
+    assert fig_timeline is not None
+    assert len(fig_timeline.data) >= 1  # Stacked area traces
+
+    fig_loader = render_loader_donut_chart(bundle.loader)
+    assert fig_loader is not None
+    assert len(fig_loader.data) == 1  # Donut trace
+
 
 def test_empty_dataframe_chart_resilience():
     """Verify chart functions handle empty DataFrames gracefully without crashing."""
@@ -119,7 +209,11 @@ def test_empty_dataframe_chart_resilience():
     fig1 = render_revenue_velocity_chart(empty_df)
     fig2 = render_monetization_donut_chart(empty_df)
     fig3 = render_daily_downloads_chart(empty_df)
+    fig4 = render_download_sources_chart(empty_df)
+    fig5 = render_download_reasons_chart(empty_df)
+    fig6 = render_game_versions_chart(empty_df)
+    fig7 = render_game_version_timeline_chart(empty_df)
+    fig8 = render_loader_donut_chart(empty_df)
 
-    assert fig1 is not None
-    assert fig2 is not None
-    assert fig3 is not None
+    for fig in [fig1, fig2, fig3, fig4, fig5, fig6, fig7, fig8]:
+        assert fig is not None

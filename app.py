@@ -13,12 +13,19 @@ import streamlit as st
 
 from src.charts import (
     render_daily_downloads_chart,
+    render_download_reasons_chart,
+    render_download_sources_chart,
+    render_game_version_timeline_chart,
+    render_game_versions_chart,
+    render_loader_donut_chart,
     render_monetization_donut_chart,
     render_revenue_velocity_chart,
 )
 from src.loader import ModrinthDataBundle, load_all_data
 from src.metrics import (
     calculate_kpis,
+    calculate_source_kpis,
+    calculate_version_kpis,
     filter_bundle_by_date,
     project_milestone_earnings,
 )
@@ -376,6 +383,218 @@ def render_tab1_revenue(bundle: ModrinthDataBundle, streamer_mode: bool) -> None
             )
 
 
+def render_tab2_launchers(bundle: ModrinthDataBundle) -> None:
+    """Render Tab 2: Launchers, Acquisition Sources & Download Reasons."""
+    src_kpis = calculate_source_kpis(bundle.download_source, bundle.download_reason)
+
+    # Top KPI row (4 cards)
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric(
+            label="Primary Launcher",
+            value=f"{src_kpis['modrinth_app_downloads']:,}",
+            delta=f"{src_kpis['modrinth_app_pct']:.1f}% Share (Modrinth App)",
+            delta_color="normal",
+            help="Official Modrinth desktop application installer downloads.",
+        )
+
+    with col2:
+        st.metric(
+            label="Web Direct",
+            value=f"{src_kpis['modrinth_website_downloads']:,}",
+            delta=f"{src_kpis['modrinth_website_pct']:.1f}% Share (Website)",
+            delta_color="normal",
+            help="Direct manual browser downloads via modrinth.com.",
+        )
+
+    with col3:
+        st.metric(
+            label="Community Launchers",
+            value=f"{src_kpis['prism_launcher_downloads']:,}",
+            delta=f"{src_kpis['prism_launcher_pct']:.1f}% Share (Prism)",
+            delta_color="normal",
+            help="Direct API pulls from Prism Launcher power-user installations.",
+        )
+
+    with col4:
+        st.metric(
+            label="Ecosystem Distribution",
+            value=f"{src_kpis['ecosystem_downloads']:,}",
+            delta=f"{src_kpis['ecosystem_pct']:.1f}% (Modpacks + Deps)",
+            delta_color="normal",
+            help="Automated pulls via modpack distribution and library dependencies.",
+        )
+
+    # Row 1: Two chart columns
+    col_left, col_right = st.columns([3, 2])
+
+    with col_left:
+        fig_sources = render_download_sources_chart(bundle.download_source)
+        st.plotly_chart(fig_sources, width="stretch")
+
+    with col_right:
+        fig_reasons = render_download_reasons_chart(bundle.download_reason)
+        st.plotly_chart(fig_reasons, width="stretch")
+
+    # Row 2: Acquisition Insight banner
+    st.markdown(
+        f"""
+        <div class="dual-rpm-banner">
+            🚀 <b>Acquisition Channel Insights:</b>
+            Over <b>{src_kpis['native_channels_pct']:.1f}% ({src_kpis['native_channels_downloads']:,} DLs)</b>
+            of your downloads originate from official Modrinth-native channels (App + Website), ensuring direct storefront discovery.
+            Meanwhile, <b>Prism Launcher ({src_kpis['prism_launcher_downloads']:,} DLs / {src_kpis['prism_launcher_pct']:.1f}%)</b>
+            represents your single largest third-party power-user launcher community, with automated modpack and dependency
+            ecosystem pulls driving <b>{src_kpis['ecosystem_downloads']:,} DLs ({src_kpis['ecosystem_pct']:.1f}%)</b> of distribution volume.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Expandable detailed table with exact counts and percentages
+    with st.expander("📋 View Detailed Source & Reason Breakdown Tables"):
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            st.markdown("##### 🚀 Launcher & Source Distribution")
+            if not bundle.download_source.empty and "Downloads" in bundle.download_source.columns:
+                s_table = (
+                    bundle.download_source.groupby("Download source", as_index=False)["Downloads"]
+                    .sum()
+                    .sort_values("Downloads", ascending=False)
+                    .reset_index(drop=True)
+                )
+                tot_s = s_table["Downloads"].sum()
+                s_table["Share (%)"] = (
+                    (s_table["Downloads"] / tot_s * 100.0).map("{:.2f}%".format)
+                    if tot_s > 0
+                    else "0.00%"
+                )
+                s_table["Downloads"] = s_table["Downloads"].map("{:,}".format)
+                st.dataframe(s_table, width="stretch", hide_index=True)
+            else:
+                st.caption("No source breakdown data available.")
+
+        with col_t2:
+            st.markdown("##### 📥 Installation Reason Distribution")
+            if not bundle.download_reason.empty and "Downloads" in bundle.download_reason.columns:
+                r_table = (
+                    bundle.download_reason.groupby("Download reason", as_index=False)["Downloads"]
+                    .sum()
+                    .sort_values("Downloads", ascending=False)
+                    .reset_index(drop=True)
+                )
+                tot_r = r_table["Downloads"].sum()
+                r_table["Share (%)"] = (
+                    (r_table["Downloads"] / tot_r * 100.0).map("{:.2f}%".format)
+                    if tot_r > 0
+                    else "0.00%"
+                )
+                r_table["Downloads"] = r_table["Downloads"].map("{:,}".format)
+                st.dataframe(r_table, width="stretch", hide_index=True)
+            else:
+                st.caption("No reason breakdown data available.")
+
+
+def render_tab3_demographics(bundle: ModrinthDataBundle) -> None:
+    """Render Tab 3: Minecraft Version Demographics & Loader Breakdown."""
+    # Disambiguation Radio Toggle
+    version_mode = st.radio(
+        "Analytics Source:",
+        [
+            "✨ Enriched Engine (Unknowns Resolved via Project Versions)",
+            "📄 Raw Modrinth Telemetry (Includes 38.7k Unknowns)",
+        ],
+        horizontal=True,
+        help="Toggle between catalog-enriched version resolution and raw Modrinth export telemetry.",
+    )
+    use_enriched = "Enriched Engine" in version_mode
+
+    v_kpis = calculate_version_kpis(
+        bundle.game_version, bundle.project_version, use_enriched=use_enriched
+    )
+
+    # Loader totals
+    if not bundle.loader.empty and "Downloads" in bundle.loader.columns:
+        loader_agg = bundle.loader.groupby("Loader")["Downloads"].sum().to_dict()
+        fabric_dls = int(loader_agg.get("Fabric", 0))
+    else:
+        fabric_dls = 0
+
+    # Top KPI row (4 cards)
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric(
+            label="Sovereign Lead Anchor",
+            value=f"{v_kpis['lead_downloads']:,} DLs",
+            delta=f"Minecraft 26.2 ({v_kpis['lead_pct']:.1f}%)",
+            delta_color="normal",
+            help="Top generational version anchor leading our studio releases.",
+        )
+
+    with col2:
+        st.metric(
+            label="Modern Anchors (26.x)",
+            value=f"{v_kpis['modern_26x_downloads']:,} DLs",
+            delta=f"{v_kpis['modern_26x_pct']:.1f}% Ecosystem",
+            delta_color="normal",
+            help="Total download volume across all modern Minecraft 26.x version builds.",
+        )
+
+    with col3:
+        st.metric(
+            label="Legacy LTS Anchors",
+            value=f"{v_kpis['legacy_downloads']:,} DLs",
+            delta=f"{v_kpis['legacy_pct']:.1f}% LTS (1.21.x / 1.20.1)",
+            delta_color="normal",
+            help="Multi-Era backport adoption across Minecraft 1.21.11, 1.21.1, and 1.20.1.",
+        )
+
+    with col4:
+        st.metric(
+            label="Primary Mod Loader",
+            value="Fabric Dominant",
+            delta=f"{fabric_dls:,} DLs (100% Identified)",
+            delta_color="normal",
+            help="100% of all identified runtime telemetry runs on the Fabric mod loader.",
+        )
+
+    # Row 1: Two columns for Version Adoption and Loader Share
+    col_left, col_right = st.columns([3, 2])
+
+    with col_left:
+        fig_versions = render_game_versions_chart(
+            bundle.game_version, bundle.project_version, use_enriched=use_enriched
+        )
+        st.plotly_chart(fig_versions, width="stretch")
+
+    with col_right:
+        fig_loader = render_loader_donut_chart(bundle.loader)
+        st.plotly_chart(fig_loader, width="stretch")
+
+    # Row 2: Version Evolution Timeline over time
+    timeline_df = bundle.project_version if use_enriched else bundle.game_version
+    timeline_col = "Target Game Version" if use_enriched else "Game version"
+    fig_timeline = render_game_version_timeline_chart(
+        timeline_df, version_col=timeline_col
+    )
+    st.plotly_chart(fig_timeline, width="stretch")
+
+    # Educational Callout
+    st.markdown(
+        """
+        <div class="dual-rpm-banner">
+            🧩 <b>Why Raw Modrinth Telemetry Reports 38,775 "Unknown" Game Versions:</b><br>
+            Third-party launchers (Prism Launcher, CurseForge App, ATLauncher, PCL2) query mod release files directly via the Modrinth API endpoint without appending the optional <code>?game_versions</code> query parameter in the download request header.
+            <br><br>
+            Our studio's <b>Enriched Demographics Engine</b> decodes project version hashes against our canonical project version catalog, resolving <b>99.5%</b> of these unknown pulls back to their true target Minecraft versions (26.2, 26.1.2, 26.3, 1.21.11, 1.20.1). This demonstrates that our studio's <b>Multi-Era Anchor Parity Law</b> actively captures player demand across both modern Sovereign leads and LTS legacy anchors!
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def main() -> None:
     """Main dashboard application entry point."""
     st.markdown(
@@ -411,16 +630,10 @@ def main() -> None:
         render_tab1_revenue(active_bundle, streamer_mode)
 
     with tab2:
-        st.info(
-            "🚀 **Launchers & Distribution Sources**: Scheduled for Step 3 implementation.\n\n"
-            "Will feature Prism vs CurseForge App vs Modrinth launcher distribution, API query analysis, and download reasons."
-        )
+        render_tab2_launchers(active_bundle)
 
     with tab3:
-        st.info(
-            "🎮 **Minecraft Demographics & Loader Breakdown**: Scheduled for Step 3 implementation.\n\n"
-            "Will feature Minecraft version distributions (MC 26.1, 26.2, 26.3, 1.21.1) and Mod Loader market shares (Fabric vs NeoForge vs Forge)."
-        )
+        render_tab3_demographics(active_bundle)
 
     with tab4:
         st.info(
