@@ -21,6 +21,7 @@ from src.charts import (
     render_dependent_modpacks_chart,
     render_download_reasons_chart,
     render_download_sources_chart,
+    render_engagement_index_chart,
     render_game_version_timeline_chart,
     render_game_versions_chart,
     render_intent_mix_timeline,
@@ -35,6 +36,7 @@ from src.charts import (
     render_single_project_velocity,
     render_telemetry_coverage_chart,
     render_top_countries_bar_chart,
+    render_us_traffic_diagnostic,
     render_world_choropleth_map,
 )
 
@@ -498,6 +500,68 @@ def test_b3_b4_b5_charts_render_cleanly(bundle: ModrinthDataBundle):
     assert len(fig_intent.layout.annotations) >= 2
 
 
+def test_b6_b7_charts_render_cleanly(bundle: ModrinthDataBundle):
+    """Verify B6 (engagement dwell-time index) and B7 (US headless traffic diagnostic) render cleanly."""
+    # B6: Engagement Dwell-Time Index
+    fig_engagement = render_engagement_index_chart(
+        bundle.game_version, bundle.project_version
+    )
+    assert fig_engagement is not None
+    assert len(fig_engagement.data) == 1
+    trace = fig_engagement.data[0]
+    assert len(trace.x) >= 4
+    assert len(trace.y) >= 4
+
+    # Verify empirical values match ground truth
+    x_list = list(trace.x)
+    y_list = [round(float(val), 2) for val in trace.y]
+    version_to_y = dict(zip(x_list, y_list))
+
+    assert "1.21.1" in version_to_y
+    assert version_to_y["1.21.1"] == 2.49
+
+    assert "1.20.1" in version_to_y
+    assert version_to_y["1.20.1"] == 1.51
+
+    assert "26.2" in version_to_y
+    assert version_to_y["26.2"] == 1.09
+
+    # Legacy LTS anchors exhibit higher engagement than modern 26.2
+    assert version_to_y["1.21.1"] > version_to_y["26.2"]
+    assert version_to_y["1.20.1"] > version_to_y["26.2"]
+
+    # Verify annotation callout for 2.3x LTS stickiness
+    assert len(fig_engagement.layout.annotations) >= 1
+    annot_texts = [a.text for a in fig_engagement.layout.annotations]
+    assert any("2.3x" in t for t in annot_texts)
+
+    # B7: US Traffic Diagnostic
+    fig_us_diag = render_us_traffic_diagnostic(bundle.country)
+    assert fig_us_diag is not None
+    # Dual subplots: 2 traces (Downloads per View & Playtime per DL)
+    assert len(fig_us_diag.data) == 2
+
+    trace_dl = fig_us_diag.data[0]
+    trace_play = fig_us_diag.data[1]
+
+    # Verify US metrics match empirical ground truth (345.4 DLs/view, 0.03 min/DL)
+    us_dl_val = float(trace_dl.y[0])
+    us_play_val = float(trace_play.y[0])
+    assert abs(us_dl_val - 345.4) < 1.0
+    assert abs(us_play_val - 0.03) < 0.01
+
+    # Verify Global Non-US and Organic baselines
+    non_us_dl_val = float(trace_dl.y[1])
+    non_us_play_val = float(trace_play.y[1])
+    assert abs(non_us_dl_val - 2.04) < 0.2
+    assert abs(non_us_play_val - 0.81) < 0.2
+
+    # Verify Headless anomaly annotation
+    assert len(fig_us_diag.layout.annotations) >= 1
+    diag_texts = [a.text for a in fig_us_diag.layout.annotations]
+    assert any("Headless Modpack Server" in t for t in diag_texts)
+
+
 def test_empty_dataframe_chart_resilience():
     """Verify chart functions handle empty DataFrames gracefully without crashing."""
     empty_df = pd.DataFrame()
@@ -521,6 +585,8 @@ def test_empty_dataframe_chart_resilience():
     fig18 = render_monetization_quadrant(empty_df)
     fig19 = render_dependency_flywheel_chart(empty_df)
     fig20 = render_intent_mix_timeline(empty_df)
+    fig21 = render_engagement_index_chart(empty_df)
+    fig22 = render_us_traffic_diagnostic(empty_df)
 
     for fig in [
         fig1,
@@ -543,6 +609,8 @@ def test_empty_dataframe_chart_resilience():
         fig18,
         fig19,
         fig20,
+        fig21,
+        fig22,
     ]:
         assert fig is not None
 

@@ -259,4 +259,28 @@ def test_app_tab1_econometric_and_telemetry_expanders(app_path: str):
     assert has_telemetry, f"Telemetry expander not found in: {expander_labels}"
 
 
+def test_app_b6_b7_visuals_render(app_path: str):
+    """Verify Tab 3 engagement index and Tab 5 regional diagnostic render cleanly without errors."""
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+
+    assert not at.exception, f"AppTest encountered exceptions: {at.exception}"
+
+    # Verify Tab 3 engagement callout is present in markdown
+    markdown_texts = [m.value for m in at.markdown]
+    has_engagement_callout = any(
+        "Empirical Justification for Multi-Era Anchor Parity Law" in text
+        for text in markdown_texts
+    )
+    assert has_engagement_callout, "Tab 3 engagement callout not found in markdown elements"
+
+    # Verify Tab 5 regional diagnostic callout is present in markdown
+    has_diagnostic_callout = any(
+        "Headless Server Distribution Anomaly" in text
+        for text in markdown_texts
+    )
+    assert has_diagnostic_callout, "Tab 5 regional diagnostic callout not found in markdown elements"
+
+
+
 
