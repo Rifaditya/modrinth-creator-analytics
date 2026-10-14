@@ -69,13 +69,13 @@ def test_app_tab2_and_tab3_metrics(app_path: str):
 
     # Tab 3 metrics verification (Enriched Engine default)
     assert "Sovereign Lead Anchor" in metric_dict
-    assert "32,556 DLs" in metric_dict["Sovereign Lead Anchor"]
+    assert "28,722 DLs" in metric_dict["Sovereign Lead Anchor"]
 
     assert "Modern Anchors (26.x)" in metric_dict
-    assert "92,541 DLs" in metric_dict["Modern Anchors (26.x)"]
+    assert "89,777 DLs" in metric_dict["Modern Anchors (26.x)"]
 
     assert "Legacy LTS Anchors" in metric_dict
-    assert "7,492 DLs" in metric_dict["Legacy LTS Anchors"]
+    assert "4,414 DLs" in metric_dict["Legacy LTS Anchors"]
 
     assert "Primary Mod Loader" in metric_dict
     assert "Fabric Dominant" in metric_dict["Primary Mod Loader"]
@@ -108,9 +108,9 @@ def test_app_version_mode_toggle(app_path: str):
     assert not at.exception, f"Exceptions after returning to Enriched mode: {at.exception}"
 
     enriched_metrics = {m.label: m.value for m in at.metric}
-    assert "32,556 DLs" in enriched_metrics["Sovereign Lead Anchor"]
-    assert "92,541 DLs" in enriched_metrics["Modern Anchors (26.x)"]
-    assert "7,492 DLs" in enriched_metrics["Legacy LTS Anchors"]
+    assert "28,722 DLs" in enriched_metrics["Sovereign Lead Anchor"]
+    assert "89,777 DLs" in enriched_metrics["Modern Anchors (26.x)"]
+    assert "4,414 DLs" in enriched_metrics["Legacy LTS Anchors"]
 
 
 def test_app_tab4_projects_matrix_and_deep_dive(app_path: str):

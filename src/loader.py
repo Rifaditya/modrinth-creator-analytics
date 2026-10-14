@@ -32,13 +32,20 @@ except Exception:
         return wrapper
 
 
+PRETRACKING_END_DATE: pd.Timestamp = pd.Timestamp("2026-04-30")
+
 # Manual alias overrides for historical/unresolved hashes
-MANUAL_VERSION_ALIASES: Dict[str, Dict[str, str]] = {
+# Mathematical containment test:
+# VO: Better Dogs is the ONLY project whose daily downloads were >= 1nazhfKH across all 128 days
+# (minimum surplus +9, while all other studio projects had negative surplus down to -51).
+MANUAL_VERSION_ALIASES: Dict[str, Dict[str, Any]] = {
     "1nazhfKH": {
         "project_title": "VO: Better Dogs",
-        "target_game_version": "26.2",
+        "target_game_version": "Universal / Multi-Version",
+        "supported_game_versions": ["26.1.2", "26.2"],
     }
 }
+
 
 
 @dataclass
@@ -133,6 +140,8 @@ def normalize_dataframe(df: pd.DataFrame, default_year: int = 2026) -> pd.DataFr
                 )
             df["Date"] = dates
 
+        df["Is Pretracking"] = (df["Date"] <= PRETRACKING_END_DATE).fillna(False)
+
     # Standardize numeric columns
     if "Downloads" in df.columns:
         df["Downloads"] = (
@@ -202,16 +211,43 @@ def load_version_catalog(
     return {}
 
 
+def classify_multiversion_jar(game_versions: List[str]) -> str:
+    """Classify target game version label for a list of supported game versions.
+
+    Rules:
+    - If empty: 'Unknown'
+    - If 1 version: that version string
+    - If all versions start with '26.': '26.x Multi-Version'
+    - If all versions start with '1.21': '1.21.x Multi-Version'
+    - If all versions start with '1.20': '1.20.x Multi-Version'
+    - If versions span across generational anchors: 'Universal Multi-Version'
+    """
+    if not game_versions:
+        return "Unknown"
+    if len(game_versions) == 1:
+        return game_versions[0]
+
+    if all(v.startswith("26.") for v in game_versions):
+        return "26.x Multi-Version"
+    if all(v.startswith("1.21") for v in game_versions):
+        return "1.21.x Multi-Version"
+    if all(v.startswith("1.20") for v in game_versions):
+        return "1.20.x Multi-Version"
+
+    return "Universal Multi-Version"
+
+
 def enrich_project_version(
     df: pd.DataFrame, catalog: Dict[str, Any]
 ) -> pd.DataFrame:
-    """Enrich project_version dataframe with Project and Target Game Version."""
+    """Enrich project_version dataframe with Project, Target Game Version, and Supported Game Versions."""
     df = df.copy()
     if "Project version" not in df.columns:
         return df
 
     projects: List[str] = []
     game_versions: List[str] = []
+    supported_game_versions: List[List[str]] = []
 
     for val in df["Project version"]:
         val_str = str(val).strip()
@@ -219,29 +255,147 @@ def enrich_project_version(
             entry = MANUAL_VERSION_ALIASES[val_str]
             projects.append(entry.get("project_title", "Unknown"))
             game_versions.append(entry.get("target_game_version", "Unknown"))
+            supported_game_versions.append(list(entry.get("supported_game_versions", [])))
         elif val_str in catalog:
             entry = catalog[val_str]
             projects.append(entry.get("project_title", "Unknown"))
-            gv = entry.get("primary_game_version")
-            if not gv and entry.get("game_versions"):
-                gv = entry["game_versions"][0]
-            game_versions.append(gv or "Unknown")
+            gvs = entry.get("game_versions", [])
+            if not gvs and entry.get("primary_game_version"):
+                gvs = [entry["primary_game_version"]]
+
+            s_list = list(gvs) if gvs else []
+            supported_game_versions.append(s_list)
+
+            if len(s_list) == 1:
+                game_versions.append(s_list[0])
+            elif len(s_list) > 1:
+                game_versions.append(classify_multiversion_jar(s_list))
+            else:
+                game_versions.append("Unknown")
         else:
             projects.append("Unknown")
             # Extract target game version heuristic from tag if present (+26.3, -26.1.2)
             if "+" in val_str:
                 suffix = val_str.split("+")[-1]
-                game_versions.append(
-                    suffix if any(c.isdigit() for c in suffix) else "Unknown"
-                )
+                target = suffix if any(c.isdigit() for c in suffix) else "Unknown"
             elif "-" in val_str and any(c.isdigit() for c in val_str.split("-")[-1]):
-                game_versions.append(val_str.split("-")[-1])
+                target = val_str.split("-")[-1]
             else:
-                game_versions.append("Unknown")
+                target = "Unknown"
+            game_versions.append(target)
+            supported_game_versions.append([target] if target != "Unknown" else [])
 
     df["Project"] = projects
     df["Target Game Version"] = game_versions
+    df["Supported Game Versions"] = supported_game_versions
     return df
+
+
+def get_proportional_game_version_breakdown(
+    project_version_df: pd.DataFrame, game_version_df: pd.DataFrame
+) -> pd.DataFrame:
+    """Calculate a mathematically sound proportional distribution for multi-version jars.
+
+    For single-version jars: attributes 100% of downloads to their single Target Game Version.
+    For multi-version jars: calculates the observed download weights among their
+    Supported Game Versions in game_version_df (excluding 'Unknown'), and allocates
+    the jar's downloads and playtime proportionally across those supported versions.
+    If none are known, attributes to the primary anchor.
+
+    Args:
+        project_version_df: Enriched project_version DataFrame containing
+            'Downloads', 'Playtime (seconds)', 'Target Game Version', and
+            'Supported Game Versions' columns.
+        game_version_df: game_version DataFrame containing 'Game version' and 'Downloads'.
+
+    Returns:
+        Aggregated DataFrame with columns ['Game version', 'Downloads', 'Playtime (seconds)'],
+        sorted descending by Downloads.
+    """
+    if (
+        project_version_df.empty
+        or "Downloads" not in project_version_df.columns
+    ):
+        return pd.DataFrame(
+            columns=["Game version", "Downloads", "Playtime (seconds)"]
+        )
+
+    # Build weights from game_version_df excluding Unknown
+    if (
+        not game_version_df.empty
+        and "Game version" in game_version_df.columns
+        and "Downloads" in game_version_df.columns
+    ):
+        valid_gv = game_version_df[
+            game_version_df["Game version"].notna()
+            & ~game_version_df["Game version"].astype(str).str.lower().str.contains("unknown")
+        ]
+        gv_weights = valid_gv.groupby("Game version")["Downloads"].sum().to_dict()
+    else:
+        gv_weights = {}
+
+    records: List[Dict[str, Any]] = []
+
+    for _, row in project_version_df.iterrows():
+        dls = float(row.get("Downloads", 0))
+        pts = float(row.get("Playtime (seconds)", 0))
+        target_ver = str(row.get("Target Game Version", "Unknown")).strip()
+        supported = row.get("Supported Game Versions")
+
+        if not isinstance(supported, list):
+            supported = [supported] if pd.notna(supported) and supported != "" else []
+
+        if len(supported) > 1:
+            # Multi-version jar: observed weights among supported game versions
+            weights = {v: float(gv_weights.get(v, 0)) for v in supported}
+            tot_w = sum(weights.values())
+
+            if tot_w > 0:
+                for v, w in weights.items():
+                    if w > 0:
+                        frac = w / tot_w
+                        records.append({
+                            "Game version": v,
+                            "Downloads": dls * frac,
+                            "Playtime (seconds)": pts * frac,
+                        })
+            else:
+                # If none are known, attribute to the primary anchor
+                primary = supported[-1]
+                if "26.2" in supported:
+                    primary = "26.2"
+                elif any(v.startswith("26.") for v in supported):
+                    v26 = [v for v in supported if v.startswith("26.")]
+                    primary = v26[-1]
+                records.append({
+                    "Game version": primary,
+                    "Downloads": dls,
+                    "Playtime (seconds)": pts,
+                })
+        else:
+            # Single-version jar: attributes 100% of downloads to single Target Game Version
+            ver = target_ver if target_ver and target_ver != "Unknown" else (
+                supported[0] if supported else "Unknown"
+            )
+            records.append({
+                "Game version": ver,
+                "Downloads": dls,
+                "Playtime (seconds)": pts,
+            })
+
+    if not records:
+        return pd.DataFrame(
+            columns=["Game version", "Downloads", "Playtime (seconds)"]
+        )
+
+    agg = (
+        pd.DataFrame(records)
+        .groupby("Game version", as_index=False)[["Downloads", "Playtime (seconds)"]]
+        .sum()
+        .sort_values("Downloads", ascending=False)
+        .reset_index(drop=True)
+    )
+    return agg
 
 
 def _read_data_frames(

@@ -141,12 +141,12 @@ def test_calculate_version_kpis(bundle: ModrinthDataBundle):
         bundle.game_version, bundle.project_version, use_enriched=True
     )
     assert enriched["total_version_downloads"] == 100226
-    assert enriched["lead_downloads"] == 32556
-    assert abs(enriched["lead_pct"] - 32.48) < 0.02
-    assert enriched["modern_26x_downloads"] == 92541
-    assert abs(enriched["modern_26x_pct"] - 92.33) < 0.02
-    assert enriched["legacy_downloads"] == 7492
-    assert abs(enriched["legacy_pct"] - 7.47) < 0.02
+    assert enriched["lead_downloads"] == 28722
+    assert abs(enriched["lead_pct"] - 28.66) < 0.02
+    assert enriched["modern_26x_downloads"] == 89777
+    assert abs(enriched["modern_26x_pct"] - 89.57) < 0.02
+    assert enriched["legacy_downloads"] == 4414
+    assert abs(enriched["legacy_pct"] - 4.40) < 0.02
     assert enriched["unknown_downloads"] == 189
 
     # Raw Mode

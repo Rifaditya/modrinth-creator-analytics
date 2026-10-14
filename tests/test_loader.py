@@ -5,7 +5,9 @@ import pytest
 import pandas as pd
 
 from src.loader import (
+    PRETRACKING_END_DATE,
     ModrinthDataBundle,
+    get_proportional_game_version_breakdown,
     identify_table_name,
     load_all_data,
     normalize_dataframe,
@@ -109,3 +111,88 @@ def test_dict_access_on_bundle(bundle: ModrinthDataBundle):
     assert bundle["project"] is bundle.project
     with pytest.raises(KeyError):
         _ = bundle["non_existent_table"]
+
+
+def test_supported_game_versions_preserved(bundle: ModrinthDataBundle):
+    """Verify Supported Game Versions column exists and contains lists of versions for catalog items."""
+    pv = bundle.project_version
+    assert "Supported Game Versions" in pv.columns, "Missing 'Supported Game Versions' column"
+
+    # Known catalog single-version item
+    row_single = pv[pv["Project version"] == "1.0.50+1.21.11"]
+    assert not row_single.empty
+    assert row_single["Supported Game Versions"].iloc[0] == ["1.21.11"]
+
+    # Known catalog multi-version item (1.8.38)
+    row_multi = pv[pv["Project version"] == "1.8.38"]
+    assert not row_multi.empty
+    gvs = row_multi["Supported Game Versions"].iloc[0]
+    assert isinstance(gvs, list)
+    assert len(gvs) > 1
+    assert "26.2" in gvs
+    assert "26.3" in gvs
+
+
+def test_multiversion_classification_not_snapshot(bundle: ModrinthDataBundle):
+    """Verify 1.8.38 and multi-version jars are not collapsed to snapshot-1, but categorized as multi-version."""
+    pv = bundle.project_version
+
+    row_1838 = pv[pv["Project version"] == "1.8.38"]
+    assert not row_1838.empty
+    target_1838 = row_1838["Target Game Version"].iloc[0]
+    assert target_1838 != "26.1-snapshot-1", "1.8.38 must not collapse to snapshot-1"
+    assert target_1838 == "26.x Multi-Version"
+
+    # Verify multi-version jars with 26.x are labeled with 26.x Multi-Version
+    multi_26 = pv[pv["Target Game Version"] == "26.x Multi-Version"]
+    assert not multi_26.empty
+    assert multi_26["Downloads"].sum() > 0
+
+
+def test_proportional_game_version_breakdown(bundle: ModrinthDataBundle):
+    """Verify proportional allocation returns 100% of total downloads (100,226) without dropping rows."""
+    prop_df = get_proportional_game_version_breakdown(
+        bundle.project_version, bundle.game_version
+    )
+
+    expected_cols = ["Game version", "Downloads", "Playtime (seconds)"]
+    assert list(prop_df.columns) == expected_cols, f"Columns mismatch: {list(prop_df.columns)}"
+
+    total_dls = prop_df["Downloads"].sum()
+    assert round(total_dls) == 100226, f"Expected 100,226 downloads, got {total_dls}"
+    assert abs(total_dls - 100226) < 1e-4
+
+    # Verify key versions are represented
+    versions = set(prop_df["Game version"])
+    assert "26.2" in versions
+    assert "26.1.2" in versions
+    assert "26.3" in versions
+    assert "1.21.11" in versions
+
+
+def test_1nazhfKH_alias_containment(bundle: ModrinthDataBundle):
+    """Verify 1nazhfKH maps to Better Dogs with multi-version support."""
+    pv = bundle.project_version
+    row = pv[pv["Project version"] == "1nazhfKH"]
+    assert not row.empty, "1nazhfKH not found in project_version table"
+
+    record = row.iloc[0]
+    assert record["Project"] == "VO: Better Dogs"
+    assert record["Target Game Version"] == "Universal / Multi-Version"
+    assert record["Supported Game Versions"] == ["26.1.2", "26.2"]
+
+
+def test_is_pretracking_column(bundle: ModrinthDataBundle):
+    """Verify April dates have Is Pretracking == True and May+ have False."""
+    for table_name, df in bundle.as_dict().items():
+        if "Date" in df.columns:
+            assert "Is Pretracking" in df.columns, f"Missing 'Is Pretracking' in {table_name}"
+            # Check April dates (pre-tracking)
+            apr_mask = df["Date"] <= PRETRACKING_END_DATE
+            if apr_mask.any():
+                assert df.loc[apr_mask, "Is Pretracking"].all(), f"April rows not True in {table_name}"
+            # Check May+ dates (post-tracking)
+            may_mask = df["Date"] > PRETRACKING_END_DATE
+            if may_mask.any():
+                assert not df.loc[may_mask, "Is Pretracking"].any(), f"May+ rows not False in {table_name}"
+
