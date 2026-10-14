@@ -24,7 +24,10 @@ from src.charts import (
     render_project_leaderboard_chart,
     render_project_version_adoption_chart,
     render_revenue_velocity_chart,
+    render_revenue_vs_views_scatter,
+    render_rolling_rpm_trend,
     render_single_project_velocity,
+    render_telemetry_coverage_chart,
     render_top_countries_bar_chart,
     render_world_choropleth_map,
 )
@@ -33,6 +36,7 @@ from src.metrics import (
     calculate_country_summary,
     calculate_kpis,
     calculate_project_summary,
+    calculate_rolling_rpm,
     calculate_source_kpis,
     calculate_version_kpis,
     filter_bundle_by_date,
@@ -365,20 +369,34 @@ def render_tab1_revenue(bundle: ModrinthDataBundle, streamer_mode: bool) -> None
             help="Slide to simulate future scale milestones (e.g. 500k, 1M, 5M downloads).",
         )
 
+    trailing_30d = kpis.get("trailing_30d_blended_rpm")
     proj = project_milestone_earnings(
         target_downloads=target_dl,
         blended_rpm=kpis["blended_rpm"],
         monetized_rpm=kpis["monetized_rpm"],
         monetization_rate=kpis["monetization_rate"],
+        trailing_30d_rpm=trailing_30d,
     )
 
     with f_col_right:
         p_card1, p_card2, p_card3 = st.columns(3)
         with p_card1:
+            conservative_proj = (
+                "$ •••••"
+                if streamer_mode
+                else f"${proj['conservative_earnings']:,.2f}"
+            )
+            cons_rpm = (
+                trailing_30d
+                if (trailing_30d is not None and trailing_30d > 0)
+                else kpis["blended_rpm"] * 0.85
+            )
             st.metric(
-                label="Projected Monetized DLs",
-                value=f"{proj['projected_monetized_downloads']:,.0f}",
-                delta=f"{kpis['monetization_rate']:.1f}% Yield",
+                label="Conservative Scenario",
+                value=conservative_proj,
+                delta=f"@ ${cons_rpm:.2f} RPM (Trailing 30d)",
+                delta_color="normal",
+                help="Conservative lower bound based on trailing 30-day blended RPM (~$0.26 / 1k DLs).",
             )
         with p_card2:
             blended_proj = (
@@ -387,21 +405,67 @@ def render_tab1_revenue(bundle: ModrinthDataBundle, streamer_mode: bool) -> None
                 else f"${proj['projected_blended_earnings']:,.2f}"
             )
             st.metric(
-                label="Projected Payout (USD)",
+                label="Baseline / Median",
                 value=blended_proj,
-                delta=f"@ ${kpis['blended_rpm']:.2f} Blended RPM",
+                delta=f"@ ${kpis['blended_rpm']:.2f} RPM (Lifetime)",
+                delta_color="normal",
+                help="Empirical baseline based on lifetime blended RPM across all downloads ($0.2933 / 1k DLs).",
             )
         with p_card3:
-            pts_proj = (
-                "••••• pts"
+            optimistic_proj = (
+                "$ •••••"
                 if streamer_mode
-                else f"{proj['projected_blended_earnings'] * 100:,.0f} pts"
+                else f"${proj['optimistic_earnings']:,.2f}"
             )
+            opt_rpm = kpis["blended_rpm"] * 1.25
             st.metric(
-                label="Creator Reward Points",
-                value=pts_proj,
-                delta="NET-60 Redemption",
+                label="Optimistic Scenario",
+                value=optimistic_proj,
+                delta=f"@ ${opt_rpm:.2f} RPM (Monetized Expansion)",
+                delta_color="normal",
+                help="Optimistic potential assuming increased client monetization and ad yield expansion (~$0.35+ / 1k DLs).",
             )
+
+    st.caption(
+        f"🎯 Milestone Target: **{target_dl:,}** total downloads (~{proj['projected_monetized_downloads']:,.0f} monetized) | "
+        f"Baseline Creator Rewards: **{proj['projected_blended_earnings'] * 100:,.0f} pts** (NET-60 Redemption)"
+    )
+
+    with st.expander("🔬 Econometric Revenue Drivers & Trailing RPM", expanded=False):
+        st.markdown(
+            """
+            <div style="background:#0F172A;border-left:4px solid #8B5CF6;padding:12px 16px;border-radius:6px;margin-bottom:14px;color:#F8FAFC;font-size:0.92rem;">
+                📈 <b>Econometric Discovery:</b> Project page views are the leading indicator of creator earnings 
+                (<b>r ≈ 0.71</b> Pearson correlation, <b>$1.17 per 1,000 monetized views</b>).
+                While launcher downloads drive cumulative scale, direct page traffic drives ad impressions. 
+                Trailing 30-day rolling RPM reveals how monetization expanded in August from $0.18 to $0.35+ as ad coverage widened.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        e_col1, e_col2 = st.columns(2)
+        with e_col1:
+            fig_scatter = render_revenue_vs_views_scatter(bundle.monetization, bundle.member)
+            st.plotly_chart(fig_scatter, width="stretch")
+        with e_col2:
+            rolling_df = calculate_rolling_rpm(bundle.member, bundle.project, bundle.monetization)
+            fig_rolling = render_rolling_rpm_trend(rolling_df)
+            st.plotly_chart(fig_rolling, width="stretch")
+
+    with st.expander("📡 Platform Telemetry Coverage & Data Health", expanded=False):
+        st.markdown(
+            """
+            <div style="background:#0F172A;border-left:4px solid #06B6D4;padding:12px 16px;border-radius:6px;margin-bottom:14px;color:#F8FAFC;font-size:0.92rem;">
+                📡 <b>Platform Telemetry Evolution:</b> Prior to <b>May 1, 2026</b>, Modrinth analytics recorded downloads without 
+                dimension categorization (0% known data across Game Version, Loader, Country, and Reason).
+                From May 1 onwards, active telemetry tracking rolled out platform-wide, establishing steady 
+                <b>~65–70% resolved dimension coverage</b> with launcher and ecosystem classification.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        fig_telemetry = render_telemetry_coverage_chart(bundle)
+        st.plotly_chart(fig_telemetry, width="stretch")
 
 
 def render_tab2_launchers(bundle: ModrinthDataBundle) -> None:

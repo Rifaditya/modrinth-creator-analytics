@@ -12,6 +12,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from src.loader import ModrinthDataBundle
+
 # Dark palette constants
 BG_TRANSPARENT = "rgba(0, 0, 0, 0)"
 BG_PLOT = "rgba(15, 23, 42, 0.55)"
@@ -1371,6 +1373,422 @@ def render_top_countries_bar_chart(
         ),
         showlegend=False,
         height=max(380, len(plot_df) * 36),
+    )
+    return fig
+
+
+def render_telemetry_coverage_chart(bundle: ModrinthDataBundle) -> go.Figure:
+    """Render 3-day rolling telemetry coverage percentage across all 6 tracking dimensions (B1).
+
+    Tracks the proportion of resolved (non-Unknown and non-Other) telemetry across
+    Game Version, Mod Loader, Geography, Download Reason, Dependent Project, and
+    Download Source. Illustrates the platform-wide shift from the pre-tracking baseline
+    (0% known prior to May 1, 2026) to steady active tracking (~65-70% resolved).
+
+    Args:
+        bundle: The normalized ModrinthDataBundle containing all analytics tables.
+
+    Returns:
+        Plotly Figure with multi-line coverage curves and May 1 rollout annotation.
+    """
+    if bundle is None:
+        return _empty_figure("No telemetry coverage data available")
+
+    dim_configs = [
+        ("Game Version", getattr(bundle, "game_version", None), "Game version", "Unknown", COLOR_PURPLE),
+        ("Mod Loader", getattr(bundle, "loader", None), "Loader", "Unknown", COLOR_CYAN),
+        ("Geography", getattr(bundle, "country", None), "Country", "Other", COLOR_EMERALD),
+        ("Download Reason", getattr(bundle, "download_reason", None), "Download reason", "Unknown", COLOR_AMBER),
+        ("Dependent Project", getattr(bundle, "dependent_project", None), "Dependent project", "Unknown", COLOR_PINK),
+        ("Download Source", getattr(bundle, "download_source", None), "Download source", "Unknown", "#38BDF8"),
+    ]
+
+    fig = go.Figure()
+    all_dates: List[pd.Timestamp] = []
+
+    for name, df, col, unknown_val, color in dim_configs:
+        if (
+            df is None
+            or df.empty
+            or "Downloads" not in df.columns
+            or "Date" not in df.columns
+            or col not in df.columns
+        ):
+            continue
+
+        totals = df.groupby("Date")["Downloads"].sum().sort_index()
+        if totals.empty or totals.sum() == 0:
+            continue
+
+        if unknown_val.lower() == "other":
+            known_mask = ~df[col].astype(str).str.strip().str.lower().isin(["other", "unknown", "none", "nan", ""])
+        else:
+            known_mask = ~df[col].astype(str).str.strip().str.lower().isin(["unknown", "none", "nan", ""])
+
+        knowns = df[known_mask].groupby("Date")["Downloads"].sum()
+        coverage = (knowns.reindex(totals.index, fill_value=0) / totals * 100.0).fillna(0.0)
+        rolling_cov = coverage.rolling(window=3, min_periods=1).mean()
+
+        all_dates.extend(totals.index.tolist())
+
+        fig.add_trace(
+            go.Scatter(
+                x=rolling_cov.index,
+                y=rolling_cov.values,
+                mode="lines",
+                name=name,
+                line=dict(color=color, width=2.5),
+                hovertemplate=f"<b>%{{x|%b %d, %Y}}</b><br>{name}: %{{y:.1f}}% Known<extra></extra>",
+            )
+        )
+
+    if not fig.data:
+        return _empty_figure("No telemetry coverage data available")
+
+    # Add May 1, 2026 Active Telemetry Tracking Rollout annotation
+    rollout_date = pd.Timestamp("2026-05-01")
+    if all_dates:
+        min_date = min(all_dates)
+        max_date = max(all_dates)
+        if min_date < rollout_date <= max_date:
+            fig.add_vrect(
+                x0=min_date,
+                x1=rollout_date,
+                fillcolor="rgba(100, 116, 139, 0.12)",
+                layer="below",
+                line_width=0,
+                annotation_text="Pre-Tracking Baseline",
+                annotation_position="top left",
+                annotation_font=dict(color=TEXT_MUTED, size=10),
+            )
+            fig.add_vline(
+                x="2026-05-01",
+                line_width=1.5,
+                line_dash="dash",
+                line_color=COLOR_AMBER,
+                annotation_text="Active Telemetry Tracking Rollout",
+                annotation_position="top right",
+                annotation_font=dict(color=COLOR_AMBER, size=11),
+            )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Platform Telemetry Coverage by Dimension (3-Day Rolling % Known)</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=60, b=40),
+        xaxis=dict(
+            title="",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            title="Telemetry Coverage (%)",
+            ticksuffix="%",
+            range=[0, 105],
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=11),
+        ),
+        height=420,
+    )
+    return fig
+
+
+def render_revenue_vs_views_scatter(
+    monetization_df: pd.DataFrame, member_df: pd.DataFrame
+) -> go.Figure:
+    """Render econometric scatter plot of daily monetized page views vs creator revenue (B2).
+
+    Calculates ordinary least squares (OLS) linear trendline using numpy.polyfit,
+    computing the Pearson correlation coefficient (r ~ 0.71-0.74) and average monetized
+    view yield ($1.17 / 1,000 views).
+
+    Args:
+        monetization_df: DataFrame with 'Date', 'Monetization', and 'Views' columns.
+        member_df: DataFrame with 'Date' and 'Revenue' columns.
+
+    Returns:
+        Plotly Figure with scatter observations, trendline, and econometric annotations.
+    """
+    if (
+        monetization_df is None
+        or member_df is None
+        or monetization_df.empty
+        or member_df.empty
+        or "Date" not in monetization_df.columns
+        or "Date" not in member_df.columns
+        or "Views" not in monetization_df.columns
+        or "Monetization" not in monetization_df.columns
+        or "Revenue" not in member_df.columns
+    ):
+        return _empty_figure("No revenue or view telemetry available for regression")
+
+    daily_rev = member_df.groupby("Date", as_index=False)["Revenue"].sum()
+    mon_mask = monetization_df["Monetization"] == "Monetized"
+    mon_sub = monetization_df[mon_mask]
+    if mon_sub.empty:
+        return _empty_figure("No monetized views available for regression")
+
+    daily_views = (
+        mon_sub.groupby("Date", as_index=False)["Views"]
+        .sum()
+        .rename(columns={"Views": "Monetized Views"})
+    )
+    merged = pd.merge(daily_rev, daily_views, on="Date", how="inner").dropna()
+
+    if len(merged) < 2:
+        return _empty_figure("Insufficient data points for regression modeling")
+
+    merged = merged.sort_values("Monetized Views").reset_index(drop=True)
+    merged["View RPM"] = (
+        merged["Revenue"] / merged["Monetized Views"] * 1000.0
+    ).fillna(0.0)
+
+    # Correlation and OLS fit
+    r = float(merged["Revenue"].corr(merged["Monetized Views"]))
+    total_rev = float(merged["Revenue"].sum())
+    total_m_views = float(merged["Monetized Views"].sum())
+    avg_yield = (total_rev / total_m_views * 1000.0) if total_m_views > 0 else 0.0
+
+    slope, intercept = np.polyfit(
+        merged["Monetized Views"].astype(float),
+        merged["Revenue"].astype(float),
+        1,
+    )
+    trend_x = np.linspace(
+        float(merged["Monetized Views"].min()),
+        float(merged["Monetized Views"].max()),
+        50,
+    )
+    trend_y = slope * trend_x + intercept
+
+    fig = go.Figure()
+
+    date_strs = pd.to_datetime(merged["Date"]).dt.strftime("%b %d, %Y")
+    fig.add_trace(
+        go.Scatter(
+            x=merged["Monetized Views"],
+            y=merged["Revenue"],
+            mode="markers",
+            name="Daily Observations",
+            marker=dict(
+                color=COLOR_CYAN,
+                size=7,
+                opacity=0.75,
+                line=dict(color=COLOR_PURPLE, width=1),
+            ),
+            customdata=np.stack([date_strs, merged["View RPM"]], axis=-1),
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "Monetized Views: %{x:,}<br>"
+                "Daily Revenue: $%{y:.3f}<br>"
+                "Effective View RPM: $%{customdata[1]:.2f} / 1k<extra></extra>"
+            ),
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=trend_x,
+            y=trend_y,
+            mode="lines",
+            name="OLS Linear Trend",
+            line=dict(color=COLOR_PURPLE, width=2.5, dash="dash"),
+            hovertemplate=(
+                "<b>OLS Fit</b><br>"
+                f"Slope: ${slope * 1000.0:.3f} / 1k views<br>"
+                f"Intercept: ${intercept:.3f}<extra></extra>"
+            ),
+        )
+    )
+
+    fig.add_annotation(
+        text=(
+            f"<b>Econometric Yield Model</b><br>"
+            f"Pearson r = {r:.2f} (Strong Predictor)<br>"
+            f"Avg Monetized Yield: <b>${avg_yield:.2f}</b> / 1,000 Views"
+        ),
+        xref="paper",
+        yref="paper",
+        x=0.03,
+        y=0.95,
+        showarrow=False,
+        align="left",
+        font=dict(color=TEXT_COLOR, size=11),
+        bgcolor="rgba(15, 23, 42, 0.85)",
+        bordercolor=COLOR_PURPLE,
+        borderwidth=1,
+        borderpad=6,
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Monetized Page Views vs Daily Creator Revenue</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=30, t=60, b=40),
+        xaxis=dict(
+            title="Daily Monetized Page Views",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            title="Daily Creator Revenue ($)",
+            tickprefix="$",
+            tickformat=".2f",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=11),
+        ),
+        height=420,
+    )
+    return fig
+
+
+def render_rolling_rpm_trend(rolling_rpm_df: pd.DataFrame) -> go.Figure:
+    """Render 30-day rolling RPM trends comparing monetized RPM vs blended RPM (B2).
+
+    Visualizes Rolling Monetized RPM (cyan #06B6D4) and Rolling Blended RPM (emerald #10B981)
+    and annotates the August 2026 step-change where monetized impression coverage expanded.
+
+    Args:
+        rolling_rpm_df: DataFrame produced by calculate_rolling_rpm().
+
+    Returns:
+        Plotly Figure with dual RPM time series and August transition marker.
+    """
+    if (
+        rolling_rpm_df is None
+        or rolling_rpm_df.empty
+        or "Date" not in rolling_rpm_df.columns
+        or "Rolling Monetized RPM" not in rolling_rpm_df.columns
+        or "Rolling Blended RPM" not in rolling_rpm_df.columns
+    ):
+        return _empty_figure("No rolling RPM telemetry available")
+
+    df = (
+        rolling_rpm_df.dropna(subset=["Date"])
+        .sort_values("Date")
+        .reset_index(drop=True)
+    )
+    if df.empty:
+        return _empty_figure("No rolling RPM telemetry available")
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["Date"],
+            y=df["Rolling Monetized RPM"],
+            mode="lines",
+            name="Rolling Monetized RPM (30d)",
+            line=dict(color=COLOR_CYAN, width=2.5),
+            hovertemplate="<b>%{x|%b %d, %Y}</b><br>Rolling Monetized RPM: $%{y:.2f} / 1k DLs<extra></extra>",
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["Date"],
+            y=df["Rolling Blended RPM"],
+            mode="lines",
+            name="Rolling Blended RPM (30d)",
+            line=dict(color=COLOR_EMERALD, width=2.5),
+            hovertemplate="<b>%{x|%b %d, %Y}</b><br>Rolling Blended RPM: $%{y:.2f} / 1k DLs<extra></extra>",
+        )
+    )
+
+    dates = pd.to_datetime(df["Date"])
+    min_date = dates.min()
+    max_date = dates.max()
+    aug_date = pd.Timestamp("2026-08-01")
+
+    if min_date < aug_date <= max_date:
+        fig.add_vline(
+            x="2026-08-01",
+            line_width=1.5,
+            line_dash="dot",
+            line_color=COLOR_CYAN,
+            annotation_text="August Monetization Expansion",
+            annotation_position="top right",
+            annotation_font=dict(color=COLOR_CYAN, size=11),
+        )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Trailing 30-Day Rolling RPM Trends (Monetized vs Blended)</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.96,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=30, t=60, b=40),
+        xaxis=dict(
+            title="",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            title="Revenue Per Mille ($ / 1k DLs)",
+            tickprefix="$",
+            tickformat=".2f",
+            showgrid=True,
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=11),
+        ),
+        height=420,
     )
     return fig
 

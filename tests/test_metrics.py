@@ -27,7 +27,10 @@ from src.charts import (
     render_project_leaderboard_chart,
     render_project_version_adoption_chart,
     render_revenue_velocity_chart,
+    render_revenue_vs_views_scatter,
+    render_rolling_rpm_trend,
     render_single_project_velocity,
+    render_telemetry_coverage_chart,
     render_top_countries_bar_chart,
     render_world_choropleth_map,
 )
@@ -422,6 +425,30 @@ def test_tab4_and_tab5_charts_render_cleanly(bundle: ModrinthDataBundle):
     assert len(fig_top_play.data) == 1
 
 
+def test_b1_b2_charts_render_cleanly(bundle: ModrinthDataBundle):
+    """Verify B1 (telemetry coverage) and B2 (revenue drivers & rolling RPM) charts render cleanly."""
+    fig_telemetry = render_telemetry_coverage_chart(bundle)
+    assert fig_telemetry is not None
+    # 6 tracking dimensions: Game Version, Mod Loader, Geography, Download Reason, Dependent Project, Download Source
+    assert len(fig_telemetry.data) == 6
+    for trace in fig_telemetry.data:
+        assert len(trace.x) > 0
+        assert len(trace.y) > 0
+
+    fig_scatter = render_revenue_vs_views_scatter(bundle.monetization, bundle.member)
+    assert fig_scatter is not None
+    # 2 traces: Scatter observations + OLS linear trendline
+    assert len(fig_scatter.data) == 2
+
+    rolling_df = calculate_rolling_rpm(
+        bundle.member, bundle.project, bundle.monetization, window_days=30
+    )
+    fig_rpm = render_rolling_rpm_trend(rolling_df)
+    assert fig_rpm is not None
+    # 2 traces: Rolling Monetized RPM + Rolling Blended RPM
+    assert len(fig_rpm.data) == 2
+
+
 def test_empty_dataframe_chart_resilience():
     """Verify chart functions handle empty DataFrames gracefully without crashing."""
     empty_df = pd.DataFrame()
@@ -439,6 +466,9 @@ def test_empty_dataframe_chart_resilience():
     fig12 = render_project_version_adoption_chart(empty_df, "Dasik Library")
     fig13 = render_world_choropleth_map(empty_df)
     fig14 = render_top_countries_bar_chart(empty_df)
+    fig15 = render_telemetry_coverage_chart(None)
+    fig16 = render_revenue_vs_views_scatter(empty_df, empty_df)
+    fig17 = render_rolling_rpm_trend(empty_df)
 
     for fig in [
         fig1,
@@ -455,6 +485,9 @@ def test_empty_dataframe_chart_resilience():
         fig12,
         fig13,
         fig14,
+        fig15,
+        fig16,
+        fig17,
     ]:
         assert fig is not None
 

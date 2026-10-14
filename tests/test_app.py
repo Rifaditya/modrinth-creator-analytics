@@ -236,3 +236,27 @@ def test_app_exclude_pretracking_toggle(app_path: str):
     assert "100,226" in restored_metrics["Total Mod Downloads"]
 
 
+def test_app_tab1_econometric_and_telemetry_expanders(app_path: str):
+    """Verify Tab 1 renders forecaster scenario metrics and econometric/telemetry expanders without errors."""
+    at = AppTest.from_file(app_path, default_timeout=30)
+    at.run()
+
+    assert not at.exception, f"AppTest encountered exceptions: {at.exception}"
+
+    metric_dict = {m.label: m.value for m in at.metric}
+
+    # Verify 3 scenario bounds metrics are rendered
+    assert "Conservative Scenario" in metric_dict, "Conservative Scenario metric missing"
+    assert "Baseline / Median" in metric_dict, "Baseline / Median metric missing"
+    assert "Optimistic Scenario" in metric_dict, "Optimistic Scenario metric missing"
+
+    # Verify expanders are present
+    expander_labels = [exp.label for exp in at.expander]
+    has_econometric = any("Econometric Revenue Drivers" in label for label in expander_labels)
+    has_telemetry = any("Platform Telemetry Coverage" in label for label in expander_labels)
+
+    assert has_econometric, f"Econometric expander not found in: {expander_labels}"
+    assert has_telemetry, f"Telemetry expander not found in: {expander_labels}"
+
+
+
