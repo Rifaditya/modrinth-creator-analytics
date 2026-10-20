@@ -17,12 +17,14 @@ from src.metrics import (
 )
 from src.charts import (
     render_bingeability_index_chart,
+    render_code_effort_vs_reward_chart,
     render_country_engagement_quadrant,
     render_daily_downloads_chart,
     render_dependency_flywheel_chart,
     render_dependent_modpacks_chart,
     render_download_reasons_chart,
     render_download_sources_chart,
+    render_downloads_vs_followers_paradox_chart,
     render_ecosystem_correlation_heatmap,
     render_engagement_index_chart,
     render_game_version_timeline_chart,
@@ -30,6 +32,7 @@ from src.charts import (
     render_growth_waterfall,
     render_intent_mix_timeline,
     render_launcher_evolution_timeline,
+    render_lead_lag_causality_chart,
     render_loader_donut_chart,
     render_modpack_virality_timeline,
     render_monetization_donut_chart,
@@ -53,6 +56,7 @@ from src.charts import (
     render_us_traffic_diagnostic,
     render_version_disambiguation_bridge_chart,
     render_version_uptake_chart,
+    render_what_drives_what_matrix_chart,
     render_world_choropleth_map,
 )
 
@@ -715,6 +719,24 @@ def test_new_advanced_charts_render_cleanly(bundle: ModrinthDataBundle):
     )
     assert fig_cadence is not None
     assert len(fig_cadence.data) == 4  # 2 subplots x (scatter + OLS line)
+
+    fig_fol_paradox = render_downloads_vs_followers_paradox_chart(proj_summary)
+    assert fig_fol_paradox is not None
+    assert len(fig_fol_paradox.data) == 4  # 2 subplots x (scatter + OLS line)
+
+    fig_code_effort = render_code_effort_vs_reward_chart(proj_summary)
+    assert fig_code_effort is not None
+    assert len(fig_code_effort.data) == 3  # Left bar + Right (scatter + OLS line)
+
+    fig_drivers = render_what_drives_what_matrix_chart(
+        proj_summary, bundle.project_version
+    )
+    assert fig_drivers is not None
+    assert len(fig_drivers.data) == 1  # 6x4 Driver Matrix Heatmap
+
+    fig_lead_lag = render_lead_lag_causality_chart(bundle.download_reason)
+    assert fig_lead_lag is not None
+    assert len(fig_lead_lag.data) == 2  # Standalone->Update & Modpack->Standalone Halo
 
 
 def test_empty_dataframe_chart_resilience():
