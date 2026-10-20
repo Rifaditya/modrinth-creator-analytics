@@ -16,22 +16,32 @@ from src.metrics import (
     project_milestone_earnings,
 )
 from src.charts import (
+    render_bingeability_index_chart,
+    render_country_engagement_quadrant,
     render_daily_downloads_chart,
     render_dependency_flywheel_chart,
     render_dependent_modpacks_chart,
     render_download_reasons_chart,
     render_download_sources_chart,
+    render_ecosystem_correlation_heatmap,
     render_engagement_index_chart,
     render_game_version_timeline_chart,
     render_game_versions_chart,
+    render_growth_waterfall,
     render_intent_mix_timeline,
+    render_launcher_evolution_timeline,
     render_loader_donut_chart,
+    render_modpack_virality_timeline,
     render_monetization_donut_chart,
     render_monetization_quadrant,
-    render_growth_waterfall,
+    render_naming_linguistics_scatter,
     render_pareto_curve,
+    render_pillar_architecture_chart,
     render_project_leaderboard_chart,
+    render_project_revenue_attribution_chart,
     render_project_version_adoption_chart,
+    render_project_version_matrix_heatmap,
+    render_release_cadence_regression_chart,
     render_revenue_velocity_chart,
     render_revenue_vs_views_scatter,
     render_rolling_rpm_trend,
@@ -41,6 +51,7 @@ from src.charts import (
     render_telemetry_coverage_chart,
     render_top_countries_bar_chart,
     render_us_traffic_diagnostic,
+    render_version_disambiguation_bridge_chart,
     render_version_uptake_chart,
     render_world_choropleth_map,
 )
@@ -269,7 +280,7 @@ def test_charts_render_cleanly(bundle: ModrinthDataBundle):
     # Tab 1 charts
     fig_rev = render_revenue_velocity_chart(bundle.member)
     assert fig_rev is not None
-    assert len(fig_rev.data) == 2  # Bar and Scatter traces
+    assert len(fig_rev.data) == 3  # Daily Bar, 7D Rolling Avg, and Cumulative Scatter traces
 
     fig_donut = render_monetization_donut_chart(bundle.monetization)
     assert fig_donut is not None
@@ -277,7 +288,7 @@ def test_charts_render_cleanly(bundle: ModrinthDataBundle):
 
     fig_dls = render_daily_downloads_chart(bundle.project)
     assert fig_dls is not None
-    assert len(fig_dls.data) == 1  # Scatter area trace
+    assert len(fig_dls.data) == 2  # Daily Scatter area + 7D Rolling Avg trace
 
     # Tab 2 charts
     fig_sources = render_download_sources_chart(bundle.download_source)
@@ -399,7 +410,7 @@ def test_tab4_and_tab5_charts_render_cleanly(bundle: ModrinthDataBundle):
 
     fig_vel = render_single_project_velocity(bundle.project, "Dasik Library")
     assert fig_vel is not None
-    assert len(fig_vel.data) == 1
+    assert len(fig_vel.data) == 3  # Daily Downloads, 7D Rolling Avg, Cumulative S-Curve
 
     fig_ver = render_project_version_adoption_chart(
         bundle.project_version, "Dasik Library"
@@ -653,6 +664,59 @@ def test_b8_b12_charts_render_cleanly(bundle: ModrinthDataBundle):
     assert waterfall_trace.y[-1] == 100226
 
 
+def test_new_advanced_charts_render_cleanly(bundle: ModrinthDataBundle):
+    """Verify all 11 new econometric, pillar, disambiguation, and virality charts render cleanly."""
+    proj_summary = calculate_project_summary(bundle.project)
+
+    fig_rev_attr = render_project_revenue_attribution_chart(bundle.project)
+    assert fig_rev_attr is not None
+    assert len(fig_rev_attr.data) >= 5
+
+    fig_l_evo = render_launcher_evolution_timeline(bundle.download_source)
+    assert fig_l_evo is not None
+    assert len(fig_l_evo.data) >= 4
+
+    fig_mp_vir = render_modpack_virality_timeline(bundle.dependent_project)
+    assert fig_mp_vir is not None
+    assert len(fig_mp_vir.data) >= 3
+
+    fig_bridge = render_version_disambiguation_bridge_chart(
+        bundle.game_version, bundle.project_version
+    )
+    assert fig_bridge is not None
+    assert len(fig_bridge.data) == 2
+
+    fig_pv_mat = render_project_version_matrix_heatmap(bundle.project_version)
+    assert fig_pv_mat is not None
+    assert len(fig_pv_mat.data) == 1
+
+    fig_pillar = render_pillar_architecture_chart(proj_summary)
+    assert fig_pillar is not None
+    assert len(fig_pillar.data) == 5  # 4 share bar series + 1 Blended RPM line
+
+    fig_binge = render_bingeability_index_chart(proj_summary)
+    assert fig_binge is not None
+    assert len(fig_binge.data) == 1
+
+    fig_naming = render_naming_linguistics_scatter(proj_summary)
+    assert fig_naming is not None
+    assert len(fig_naming.data) == 2  # Scatter + Log-OLS trendline
+
+    fig_geo_quad = render_country_engagement_quadrant(bundle.country)
+    assert fig_geo_quad is not None
+    assert len(fig_geo_quad.data) == 3  # 3 distinct geographic telemetry regimes
+
+    fig_corr = render_ecosystem_correlation_heatmap(bundle.project)
+    assert fig_corr is not None
+    assert len(fig_corr.data) == 1
+
+    fig_cadence = render_release_cadence_regression_chart(
+        bundle.project, bundle.project_version
+    )
+    assert fig_cadence is not None
+    assert len(fig_cadence.data) == 4  # 2 subplots x (scatter + OLS line)
+
+
 def test_empty_dataframe_chart_resilience():
     """Verify chart functions handle empty DataFrames gracefully without crashing."""
     empty_df = pd.DataFrame()
@@ -683,6 +747,17 @@ def test_empty_dataframe_chart_resilience():
     fig25 = render_version_uptake_chart(empty_df)
     fig26 = render_pareto_curve(empty_df)
     fig27 = render_growth_waterfall(empty_df)
+    fig28 = render_project_revenue_attribution_chart(empty_df)
+    fig29 = render_launcher_evolution_timeline(empty_df)
+    fig30 = render_modpack_virality_timeline(empty_df)
+    fig31 = render_version_disambiguation_bridge_chart(empty_df, empty_df)
+    fig32 = render_project_version_matrix_heatmap(empty_df)
+    fig33 = render_pillar_architecture_chart(empty_df)
+    fig34 = render_bingeability_index_chart(empty_df)
+    fig35 = render_naming_linguistics_scatter(empty_df)
+    fig36 = render_country_engagement_quadrant(empty_df)
+    fig37 = render_ecosystem_correlation_heatmap(empty_df)
+    fig38 = render_release_cadence_regression_chart(empty_df, empty_df)
 
     for fig in [
         fig1,
@@ -712,6 +787,18 @@ def test_empty_dataframe_chart_resilience():
         fig25,
         fig26,
         fig27,
+        fig28,
+        fig29,
+        fig30,
+        fig31,
+        fig32,
+        fig33,
+        fig34,
+        fig35,
+        fig36,
+        fig37,
+        fig38,
     ]:
         assert fig is not None
+
 

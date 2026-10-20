@@ -113,14 +113,36 @@ def _empty_figure(message: str = "No data available") -> go.Figure:
     return fig
 
 
+def _get_standard_rangeselector() -> Dict[str, Any]:
+    """Return dark-themed interactive 1M / 3M / All range selector buttons for time-series charts."""
+    return dict(
+        bgcolor="rgba(15, 23, 42, 0.85)",
+        activecolor=COLOR_PURPLE,
+        bordercolor=GRID_COLOR,
+        borderwidth=1,
+        font=dict(size=10, color=TEXT_COLOR),
+        x=0.99,
+        xanchor="right",
+        y=1.12,
+        yanchor="top",
+        buttons=list(
+            [
+                dict(count=1, label="1M", step="month", stepmode="backward"),
+                dict(count=3, label="3M", step="month", stepmode="backward"),
+                dict(step="all", label="All"),
+            ]
+        ),
+    )
+
+
 def render_revenue_velocity_chart(member_df: pd.DataFrame) -> go.Figure:
-    """Render daily revenue bars alongside a cumulative revenue line curve.
+    """Render daily revenue bars, 7-day rolling mean, and cumulative revenue curve.
 
     Args:
         member_df: DataFrame with 'Date' and 'Revenue' columns.
 
     Returns:
-        Plotly Figure with dual y-axes.
+        Plotly Figure with dual y-axes, moving average, peak callout, and range selector.
     """
     if member_df.empty or "Revenue" not in member_df.columns:
         return _empty_figure("No revenue data available for this range")
@@ -133,6 +155,8 @@ def render_revenue_velocity_chart(member_df: pd.DataFrame) -> go.Figure:
         .reset_index(drop=True)
     )
     daily["Cumulative Revenue"] = daily["Revenue"].cumsum()
+    daily["Rolling 7D Avg"] = daily["Revenue"].rolling(7, min_periods=1).mean()
+    mean_rev = float(daily["Revenue"].mean()) if not daily.empty else 0.0
 
     fig = make_subplots(
         specs=[[{"secondary_y": True}]],
@@ -146,9 +170,27 @@ def render_revenue_velocity_chart(member_df: pd.DataFrame) -> go.Figure:
             name="Daily Revenue ($)",
             marker=dict(
                 color=COLOR_PURPLE,
+                opacity=0.65,
                 line=dict(color="rgba(139, 92, 246, 0.4)", width=1),
             ),
             hovertemplate="<b>%{x|%b %d, %Y}</b><br>Daily Revenue: $%{y:.3f}<extra></extra>",
+        ),
+        secondary_y=False,
+    )
+
+    # 7-Day Rolling Moving Average overlay
+    fig.add_trace(
+        go.Scatter(
+            x=daily["Date"],
+            y=daily["Rolling 7D Avg"],
+            name="7D Rolling Avg ($)",
+            mode="lines",
+            line=dict(
+                color=COLOR_AMBER,
+                width=2.2,
+                shape="spline",
+            ),
+            hovertemplate="<b>%{x|%b %d, %Y}</b><br>7D Rolling Avg: $%{y:.3f}<extra></extra>",
         ),
         secondary_y=False,
     )
@@ -170,9 +212,44 @@ def render_revenue_velocity_chart(member_df: pd.DataFrame) -> go.Figure:
         secondary_y=True,
     )
 
+    # Horizontal Mean Reference Line on primary axis
+    if mean_rev > 0:
+        fig.add_hline(
+            y=mean_rev,
+            line_dash="dot",
+            line_color=TEXT_MUTED,
+            line_width=1.2,
+            annotation_text=f"Mean: ${mean_rev:.2f}/d",
+            annotation_position="top left",
+            annotation_font=dict(size=10, color=TEXT_MUTED),
+            secondary_y=False,
+        )
+
+    # Peak Day Callout Annotation
+    if not daily.empty and daily["Revenue"].max() > 0:
+        peak_idx = daily["Revenue"].idxmax()
+        peak_date = daily.loc[peak_idx, "Date"]
+        peak_val = float(daily.loc[peak_idx, "Revenue"])
+        fig.add_annotation(
+            x=peak_date,
+            y=peak_val,
+            yref="y",
+            text=f"<b>Peak: ${peak_val:.2f}</b><br>({pd.to_datetime(peak_date).strftime('%b %d')})",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowcolor=COLOR_AMBER,
+            ax=-35,
+            ay=-28,
+            bgcolor="rgba(15, 23, 42, 0.90)",
+            bordercolor=COLOR_AMBER,
+            borderwidth=1,
+            font=dict(size=10, color=TEXT_COLOR),
+        )
+
     fig.update_layout(
         title=dict(
-            text="<b>Daily Velocity & Cumulative Revenue</b>",
+            text="<b>Daily Velocity, 7D Moving Avg & Cumulative Revenue</b>",
             font=dict(size=16, color=TEXT_COLOR),
             x=0.01,
             y=0.98,
@@ -181,7 +258,7 @@ def render_revenue_velocity_chart(member_df: pd.DataFrame) -> go.Figure:
         paper_bgcolor=BG_TRANSPARENT,
         plot_bgcolor=BG_PLOT,
         font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
-        margin=dict(l=40, r=40, t=55, b=65),
+        margin=dict(l=40, r=40, t=65, b=65),
         hovermode="x unified",
         legend=dict(
             orientation="h",
@@ -194,13 +271,14 @@ def render_revenue_velocity_chart(member_df: pd.DataFrame) -> go.Figure:
             borderwidth=1,
             font=dict(size=11),
         ),
-        height=440,
+        height=450,
     )
 
     fig.update_xaxes(
         showgrid=True,
         gridcolor=GRID_COLOR,
         zeroline=False,
+        rangeselector=_get_standard_rangeselector(),
     )
     fig.update_yaxes(
         title_text="Daily Revenue ($)",
@@ -304,13 +382,13 @@ def render_monetization_donut_chart(monetization_df: pd.DataFrame) -> go.Figure:
 
 
 def render_daily_downloads_chart(project_df: pd.DataFrame) -> go.Figure:
-    """Render a daily downloads area/line chart over time.
+    """Render a daily downloads area chart with 7-day rolling mean, peak annotation, and range selector.
 
     Args:
         project_df: DataFrame with 'Date' and 'Downloads' columns.
 
     Returns:
-        Plotly Figure showing daily download volume with smooth spline.
+        Plotly Figure showing daily download volume with smooth spline, 7D trend, and reference lines.
     """
     if project_df.empty or "Downloads" not in project_df.columns:
         return _empty_figure("No download activity available for this range")
@@ -321,6 +399,8 @@ def render_daily_downloads_chart(project_df: pd.DataFrame) -> go.Figure:
         .sort_values("Date")
         .reset_index(drop=True)
     )
+    daily["Rolling 7D Avg"] = daily["Downloads"].rolling(7, min_periods=1).mean()
+    mean_dls = float(daily["Downloads"].mean()) if not daily.empty else 0.0
 
     fig = go.Figure()
 
@@ -333,7 +413,7 @@ def render_daily_downloads_chart(project_df: pd.DataFrame) -> go.Figure:
             fill="tozeroy",
             line=dict(
                 color=COLOR_CYAN,
-                width=2.5,
+                width=2.0,
                 shape="spline",
             ),
             fillcolor="rgba(6, 182, 212, 0.12)",
@@ -341,26 +421,84 @@ def render_daily_downloads_chart(project_df: pd.DataFrame) -> go.Figure:
         )
     )
 
+    fig.add_trace(
+        go.Scatter(
+            x=daily["Date"],
+            y=daily["Rolling 7D Avg"],
+            name="7D Rolling Avg",
+            mode="lines",
+            line=dict(
+                color=COLOR_PURPLE,
+                width=2.8,
+                shape="spline",
+            ),
+            hovertemplate="<b>%{x|%b %d, %Y}</b><br>7D Rolling Avg: %{y:,.0f}<extra></extra>",
+        )
+    )
+
+    if mean_dls > 0:
+        fig.add_hline(
+            y=mean_dls,
+            line_dash="dot",
+            line_color=TEXT_MUTED,
+            line_width=1.2,
+            annotation_text=f"Mean: {mean_dls:,.0f} DLs/day",
+            annotation_position="top left",
+            annotation_font=dict(size=10, color=TEXT_MUTED),
+        )
+
+    if not daily.empty and daily["Downloads"].max() > 0:
+        peak_idx = daily["Downloads"].idxmax()
+        peak_date = daily.loc[peak_idx, "Date"]
+        peak_val = int(daily.loc[peak_idx, "Downloads"])
+        fig.add_annotation(
+            x=peak_date,
+            y=peak_val,
+            text=f"<b>All-Time Peak: {peak_val:,} DLs</b><br>({pd.to_datetime(peak_date).strftime('%b %d, %Y')})",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowcolor=COLOR_EMERALD,
+            ax=-55,
+            ay=-28,
+            bgcolor="rgba(15, 23, 42, 0.92)",
+            bordercolor=COLOR_EMERALD,
+            borderwidth=1.2,
+            font=dict(size=10, color=TEXT_COLOR),
+        )
+
     fig.update_layout(
         title=dict(
-            text="<b>Daily Downloads Velocity</b>",
+            text="<b>Daily Downloads Velocity & 7-Day Rolling Trend</b>",
             font=dict(size=16, color=TEXT_COLOR),
             x=0.01,
-            y=0.96,
+            y=0.98,
         ),
         template="plotly_dark",
         paper_bgcolor=BG_TRANSPARENT,
         plot_bgcolor=BG_PLOT,
         font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
-        margin=dict(l=40, r=40, t=60, b=40),
+        margin=dict(l=40, r=40, t=65, b=65),
         hovermode="x unified",
-        showlegend=False,
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.18,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=11),
+        ),
+        height=440,
     )
 
     fig.update_xaxes(
         showgrid=True,
         gridcolor=GRID_COLOR,
         zeroline=False,
+        rangeselector=_get_standard_rangeselector(),
     )
     fig.update_yaxes(
         title_text="Downloads",
@@ -1022,14 +1160,14 @@ def render_dependent_modpacks_chart(
 def render_single_project_velocity(
     project_df: pd.DataFrame, project_name: str
 ) -> go.Figure:
-    """Render daily downloads area curve over time for a single mod project.
+    """Render daily downloads area curve, 7D rolling average, and cumulative S-curve for a single mod.
 
     Args:
         project_df: DataFrame with 'Date', 'Project', and 'Downloads' columns.
         project_name: The name of the project to isolate.
 
     Returns:
-        Plotly Figure showing daily download trajectory.
+        Plotly Figure showing daily download trajectory, 7D trend, and cumulative growth.
     """
     if (
         project_df.empty
@@ -1049,8 +1187,11 @@ def render_single_project_velocity(
         .sort_values("Date")
         .reset_index(drop=True)
     )
+    daily["Rolling 7D Avg"] = daily["Downloads"].rolling(7, min_periods=1).mean()
+    daily["Cumulative"] = daily["Downloads"].cumsum()
+    mean_dls = float(daily["Downloads"].mean()) if not daily.empty else 0.0
 
-    fig = go.Figure()
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig.add_trace(
         go.Scatter(
             x=daily["Date"],
@@ -1060,37 +1201,126 @@ def render_single_project_velocity(
             fill="tozeroy",
             line=dict(
                 color=COLOR_PURPLE,
-                width=2.5,
+                width=2.0,
                 shape="spline",
             ),
-            fillcolor="rgba(139, 92, 246, 0.15)",
-            hovertemplate="<b>%{x|%b %d, %Y}</b><br>Downloads: %{y:,.0f}<extra></extra>",
-        )
+            fillcolor="rgba(139, 92, 246, 0.14)",
+            hovertemplate="<b>%{x|%b %d, %Y}</b><br>Daily Downloads: %{y:,.0f}<extra></extra>",
+        ),
+        secondary_y=False,
     )
+
+    fig.add_trace(
+        go.Scatter(
+            x=daily["Date"],
+            y=daily["Rolling 7D Avg"],
+            name="7D Rolling Avg",
+            mode="lines",
+            line=dict(
+                color=COLOR_CYAN,
+                width=2.4,
+                shape="spline",
+            ),
+            hovertemplate="<b>%{x|%b %d, %Y}</b><br>7D Rolling Avg: %{y:,.0f}<extra></extra>",
+        ),
+        secondary_y=False,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=daily["Date"],
+            y=daily["Cumulative"],
+            name="Cumulative Total",
+            mode="lines",
+            line=dict(
+                color=COLOR_EMERALD,
+                width=2.2,
+                dash="dot",
+            ),
+            hovertemplate="<b>%{x|%b %d, %Y}</b><br>Cumulative: %{y:,.0f} DLs<extra></extra>",
+        ),
+        secondary_y=True,
+    )
+
+    if mean_dls > 0:
+        fig.add_hline(
+            y=mean_dls,
+            line_dash="dot",
+            line_color=TEXT_MUTED,
+            line_width=1.1,
+            annotation_text=f"Mean: {mean_dls:,.0f}/d",
+            annotation_position="top left",
+            annotation_font=dict(size=10, color=TEXT_MUTED),
+            secondary_y=False,
+        )
+
+    if not daily.empty and daily["Downloads"].max() > 0:
+        peak_idx = daily["Downloads"].idxmax()
+        peak_date = daily.loc[peak_idx, "Date"]
+        peak_val = int(daily.loc[peak_idx, "Downloads"])
+        fig.add_annotation(
+            x=peak_date,
+            y=peak_val,
+            yref="y",
+            text=f"<b>Peak: {peak_val:,} DLs</b><br>({pd.to_datetime(peak_date).strftime('%b %d')})",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowcolor=COLOR_CYAN,
+            ax=-40,
+            ay=-25,
+            bgcolor="rgba(15, 23, 42, 0.90)",
+            bordercolor=COLOR_CYAN,
+            borderwidth=1,
+            font=dict(size=10, color=TEXT_COLOR),
+        )
 
     fig.update_layout(
         title=dict(
-            text=f"<b>Daily Velocity: {project_name}</b>",
+            text=f"<b>Daily Velocity, 7D Trend & Cumulative S-Curve: {project_name}</b>",
             font=dict(size=16, color=TEXT_COLOR),
             x=0.01,
-            y=0.96,
+            y=0.98,
         ),
         template="plotly_dark",
         paper_bgcolor=BG_TRANSPARENT,
         plot_bgcolor=BG_PLOT,
         font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
-        margin=dict(l=40, r=40, t=60, b=40),
+        margin=dict(l=40, r=40, t=65, b=65),
         hovermode="x unified",
-        showlegend=False,
-        height=380,
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.18,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=11),
+        ),
+        height=420,
     )
-    fig.update_xaxes(showgrid=True, gridcolor=GRID_COLOR, zeroline=False)
+    fig.update_xaxes(
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+        rangeselector=_get_standard_rangeselector(),
+    )
     fig.update_yaxes(
-        title="Downloads",
+        title_text="Daily Downloads",
         title_font=dict(size=12, color=COLOR_PURPLE),
         showgrid=True,
         gridcolor=GRID_COLOR,
         zeroline=False,
+        secondary_y=False,
+    )
+    fig.update_yaxes(
+        title_text="Cumulative Downloads",
+        title_font=dict(size=12, color=COLOR_EMERALD),
+        showgrid=False,
+        zeroline=False,
+        secondary_y=True,
     )
     return fig
 
@@ -1098,14 +1328,14 @@ def render_single_project_velocity(
 def render_project_version_adoption_chart(
     project_version_df: pd.DataFrame, project_name: str
 ) -> go.Figure:
-    """Render vertical bar chart of downloads by project version for a single mod.
+    """Render vertical bar chart of downloads by project version color-coded by MC anchor.
 
     Args:
         project_version_df: DataFrame with 'Project', 'Project version', and 'Downloads'.
         project_name: Target project name to filter by.
 
     Returns:
-        Plotly Figure showing top release version adoption.
+        Plotly Figure showing top release version adoption colored by target Minecraft version.
     """
     if (
         project_version_df.empty
@@ -1115,42 +1345,78 @@ def render_project_version_adoption_chart(
     ):
         return _empty_figure(f"No version telemetry available for {project_name}")
 
-    sub = project_version_df[project_version_df["Project"] == project_name]
+    sub = project_version_df[project_version_df["Project"] == project_name].copy()
     if sub.empty:
         return _empty_figure(f"No version telemetry available for {project_name}")
 
     total_mod_dls = sub["Downloads"].sum()
-    agg = (
-        sub.groupby("Project version", as_index=False)["Downloads"]
-        .sum()
-        .sort_values("Downloads", ascending=False)
-        .head(10)
-        .reset_index(drop=True)
-    )
+    has_target_gv = "Target Game Version" in sub.columns
+    if has_target_gv:
+        agg = (
+            sub.groupby("Project version", as_index=False)
+            .agg(
+                {
+                    "Downloads": "sum",
+                    "Target Game Version": "first",
+                }
+            )
+            .sort_values("Downloads", ascending=False)
+            .head(10)
+            .reset_index(drop=True)
+        )
+    else:
+        agg = (
+            sub.groupby("Project version", as_index=False)["Downloads"]
+            .sum()
+            .sort_values("Downloads", ascending=False)
+            .head(10)
+            .reset_index(drop=True)
+        )
+        agg["Target Game Version"] = "26.2"
 
     agg["Percentage"] = (
         (agg["Downloads"] / total_mod_dls * 100.0) if total_mod_dls > 0 else 0.0
     )
+    bar_colors = [
+        get_version_color(gv) if has_target_gv else COLOR_CYAN
+        for gv in agg["Target Game Version"]
+    ]
+    mean_ver_dls = float(agg["Downloads"].mean()) if not agg.empty else 0.0
 
     fig = go.Figure(
         go.Bar(
             x=agg["Project version"],
             y=agg["Downloads"],
             marker=dict(
-                color=COLOR_CYAN,
+                color=bar_colors,
                 line=dict(color="#0F172A", width=1),
             ),
-            text=[f"{v:,.0f}" for v in agg["Downloads"]],
+            text=[f"{v:,.0f} ({p:.0f}%)" for v, p in zip(agg["Downloads"], agg["Percentage"])],
             textposition="outside",
             textfont=dict(color=TEXT_COLOR, size=11),
-            customdata=agg["Percentage"],
-            hovertemplate="<b>v%{x}</b><br>Downloads: %{y:,.0f}<br>Share: %{customdata:.1f}%<extra></extra>",
+            customdata=agg[["Percentage", "Target Game Version"]],
+            hovertemplate=(
+                "<b>v%{x}</b><br>"
+                "Target Anchor: <b>MC %{customdata[1]}</b><br>"
+                "Downloads: %{y:,.0f} (%{customdata[0]:.1f}%)<extra></extra>"
+            ),
         )
     )
 
+    if mean_ver_dls > 0 and len(agg) > 1:
+        fig.add_hline(
+            y=mean_ver_dls,
+            line_dash="dot",
+            line_color=TEXT_MUTED,
+            line_width=1.1,
+            annotation_text=f"Top-10 Avg: {mean_ver_dls:,.0f} DLs",
+            annotation_position="top right",
+            annotation_font=dict(size=10, color=TEXT_MUTED),
+        )
+
     fig.update_layout(
         title=dict(
-            text=f"<b>Version Adoption (Top Releases): {project_name}</b>",
+            text=f"<b>Version Adoption by Target MC Anchor (Top Releases): {project_name}</b>",
             font=dict(size=16, color=TEXT_COLOR),
             x=0.01,
             y=0.96,
@@ -1159,9 +1425,9 @@ def render_project_version_adoption_chart(
         paper_bgcolor=BG_TRANSPARENT,
         plot_bgcolor=BG_PLOT,
         font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
-        margin=dict(l=40, r=40, t=60, b=40),
+        margin=dict(l=40, r=40, t=60, b=45),
         xaxis=dict(
-            title="Project Release Version",
+            title="Project Release Version (Colored by Target MC Anchor)",
             showgrid=False,
             zeroline=False,
             type="category",
@@ -1173,7 +1439,7 @@ def render_project_version_adoption_chart(
             zeroline=False,
         ),
         showlegend=False,
-        height=380,
+        height=400,
     )
     return fig
 
@@ -3666,6 +3932,1386 @@ def render_growth_waterfall(daily_df: pd.DataFrame) -> go.Figure:
     )
 
     return fig
+
+
+def _classify_project_pillar(project_name: str) -> str:
+    """Classify a Modrinth project title into its canonical Studio Pillar."""
+    s = str(project_name).strip()
+    if s.startswith("VO:"):
+        return "VO (Vanilla Outsider)"
+    elif s.startswith("IG:"):
+        return "IG (Instant Grat.)"
+    elif s.startswith("DG:"):
+        return "DG (Delayed Grat.)"
+    return "SYS (Core & Utility)"
+
+
+def render_project_revenue_attribution_chart(project_df: pd.DataFrame) -> go.Figure:
+    """Render monthly stacked bar chart decomposing revenue across top studio mods.
+
+    Args:
+        project_df: DataFrame with 'Date', 'Project', and 'Revenue' columns.
+
+    Returns:
+        Plotly Figure showing monthly stacked revenue contributions by flagship projects.
+    """
+    if (
+        project_df.empty
+        or "Date" not in project_df.columns
+        or "Project" not in project_df.columns
+        or "Revenue" not in project_df.columns
+    ):
+        return _empty_figure("No project revenue attribution telemetry available")
+
+    df = project_df.copy()
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df = df.dropna(subset=["Date"])
+    if df.empty or df["Revenue"].sum() <= 0:
+        return _empty_figure("No revenue records found for project attribution")
+
+    df["Month"] = df["Date"].dt.to_period("M").astype(str)
+    top_mods = (
+        df.groupby("Project")["Revenue"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(5)
+        .index.tolist()
+    )
+
+    df["Bucket"] = df["Project"].apply(
+        lambda p: p if p in top_mods else "Long-Tail Catalog (16 Mods)"
+    )
+    monthly = (
+        df.groupby(["Month", "Bucket"], as_index=False)["Revenue"]
+        .sum()
+        .sort_values("Month")
+    )
+    pivot = (
+        monthly.pivot(index="Month", columns="Bucket", values="Revenue")
+        .fillna(0.0)
+        .sort_index()
+    )
+
+    bucket_order = [m for m in top_mods if m in pivot.columns]
+    if "Long-Tail Catalog (16 Mods)" in pivot.columns:
+        bucket_order.append("Long-Tail Catalog (16 Mods)")
+
+    palette = [
+        COLOR_PURPLE,
+        COLOR_CYAN,
+        COLOR_EMERALD,
+        COLOR_AMBER,
+        COLOR_PINK,
+        COLOR_SLATE,
+    ]
+
+    fig = go.Figure()
+    for idx, b_name in enumerate(bucket_order):
+        col_hex = palette[idx % len(palette)]
+        fig.add_trace(
+            go.Bar(
+                x=pivot.index,
+                y=pivot[b_name],
+                name=b_name,
+                marker=dict(color=col_hex, line=dict(color="#0F172A", width=1)),
+                hovertemplate=f"<b>{b_name}</b><br>Month: %{{x}}<br>Revenue: $%{{y:.2f}}<extra></extra>",
+            )
+        )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Monthly Creator Revenue Attribution by Flagship Mod</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.98,
+        ),
+        barmode="stack",
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=55, b=75),
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.20,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=10),
+        ),
+        height=440,
+    )
+    fig.update_xaxes(title="Month", showgrid=False, zeroline=False, type="category")
+    fig.update_yaxes(
+        title="Monthly Revenue ($)",
+        tickprefix="$",
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+    )
+    return fig
+
+
+def render_launcher_evolution_timeline(source_df: pd.DataFrame) -> go.Figure:
+    """Render weekly stacked area evolution of top download launchers over time.
+
+    Args:
+        source_df: DataFrame with 'Date', 'Download source', and 'Downloads'.
+
+    Returns:
+        Plotly Figure showing longitudinal launcher share evolution.
+    """
+    if (
+        source_df.empty
+        or "Date" not in source_df.columns
+        or "Download source" not in source_df.columns
+        or "Downloads" not in source_df.columns
+    ):
+        return _empty_figure("No launcher timeline telemetry available")
+
+    df = source_df.copy()
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df = df.dropna(subset=["Date"])
+    if df.empty or df["Downloads"].sum() == 0:
+        return _empty_figure("No launcher timeline telemetry available")
+
+    top_sources = (
+        df.groupby("Download source")["Downloads"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(5)
+        .index.tolist()
+    )
+    df["SourceGroup"] = df["Download source"].apply(
+        lambda s: s if s in top_sources else "Other Launchers"
+    )
+    df["Week"] = df["Date"].dt.to_period("W").apply(lambda r: r.start_time)
+
+    weekly = (
+        df.groupby(["Week", "SourceGroup"], as_index=False)["Downloads"]
+        .sum()
+        .sort_values("Week")
+    )
+    pivot = (
+        weekly.pivot(index="Week", columns="SourceGroup", values="Downloads")
+        .fillna(0)
+        .sort_index()
+    )
+
+    ordered_cols = [s for s in top_sources if s in pivot.columns]
+    if "Other Launchers" in pivot.columns and "Other Launchers" not in ordered_cols:
+        ordered_cols.append("Other Launchers")
+
+    fig = go.Figure()
+    for s_name in ordered_cols:
+        color = SOURCE_COLOR_MAP.get(s_name, "#94A3B8")
+        fig.add_trace(
+            go.Scatter(
+                x=pivot.index,
+                y=pivot[s_name],
+                name=s_name,
+                mode="lines",
+                stackgroup="one",
+                line=dict(color=color, width=1.6, shape="spline"),
+                hovertemplate=f"<b>{s_name}</b>: %{{y:,.0f}} DLs/wk<extra></extra>",
+            )
+        )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Weekly Launcher & Client Acquisition Evolution</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.98,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=55, b=70),
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.20,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=10),
+        ),
+        height=430,
+    )
+    fig.update_xaxes(showgrid=True, gridcolor=GRID_COLOR, zeroline=False)
+    fig.update_yaxes(
+        title="Weekly Downloads",
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+    )
+    return fig
+
+
+def render_modpack_virality_timeline(dep_df: pd.DataFrame) -> go.Figure:
+    """Render weekly viral adoption curves for top external dependent modpacks.
+
+    Args:
+        dep_df: DataFrame with 'Date', 'Dependent project', and 'Downloads'.
+
+    Returns:
+        Plotly Figure illustrating third-party modpack ingestion waves over time.
+    """
+    if (
+        dep_df.empty
+        or "Date" not in dep_df.columns
+        or "Dependent project" not in dep_df.columns
+        or "Downloads" not in dep_df.columns
+    ):
+        return _empty_figure("No dependent modpack timeline available")
+
+    def _is_external_pack(name: str) -> bool:
+        s = str(name).strip()
+        if s == "Unknown":
+            return False
+        return not (
+            s.startswith("VO:")
+            or s.startswith("IG:")
+            or s.startswith("DG:")
+            or "Dasik" in s
+            or "gamerules" in s.lower()
+        )
+
+    sub = dep_df[dep_df["Dependent project"].apply(_is_external_pack)].copy()
+    if sub.empty or sub["Downloads"].sum() == 0:
+        return _empty_figure("No external modpack timeline telemetry available")
+
+    sub["Date"] = pd.to_datetime(sub["Date"], errors="coerce")
+    sub = sub.dropna(subset=["Date"])
+    top_packs = (
+        sub.groupby("Dependent project")["Downloads"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(4)
+        .index.tolist()
+    )
+    sub["PackGroup"] = sub["Dependent project"].apply(
+        lambda p: p if p in top_packs else "Other External Modpacks"
+    )
+    sub["Week"] = sub["Date"].dt.to_period("W").apply(lambda r: r.start_time)
+
+    weekly = (
+        sub.groupby(["Week", "PackGroup"], as_index=False)["Downloads"]
+        .sum()
+        .sort_values("Week")
+    )
+    pivot = (
+        weekly.pivot(index="Week", columns="PackGroup", values="Downloads")
+        .fillna(0)
+        .sort_index()
+    )
+
+    ordered = [p for p in top_packs if p in pivot.columns]
+    if "Other External Modpacks" in pivot.columns:
+        ordered.append("Other External Modpacks")
+
+    palette = [COLOR_EMERALD, COLOR_CYAN, COLOR_PURPLE, COLOR_AMBER, COLOR_SLATE]
+    fig = go.Figure()
+    for idx, p_name in enumerate(ordered):
+        c_hex = palette[idx % len(palette)]
+        fig.add_trace(
+            go.Scatter(
+                x=pivot.index,
+                y=pivot[p_name],
+                name=p_name,
+                mode="lines+markers",
+                line=dict(color=c_hex, width=2.4, shape="spline"),
+                marker=dict(size=5, color=c_hex),
+                hovertemplate=f"<b>{p_name}</b>: %{{y:,.0f}} DLs/wk<extra></extra>",
+            )
+        )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Third-Party Modpack Virality Waves (Weekly Ingestion)</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.98,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=55, b=70),
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.20,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=10),
+        ),
+        height=430,
+    )
+    fig.update_xaxes(showgrid=True, gridcolor=GRID_COLOR, zeroline=False)
+    fig.update_yaxes(
+        title="Weekly Attributed Downloads",
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+    )
+    return fig
+
+
+def render_version_disambiguation_bridge_chart(
+    game_version_df: pd.DataFrame, enriched_pv_df: pd.DataFrame
+) -> go.Figure:
+    """Render side-by-side grouped bar chart comparing Raw Telemetry vs Enriched Engine.
+
+    Args:
+        game_version_df: Raw Modrinth game_version DataFrame.
+        enriched_pv_df: Enriched project_version DataFrame with 'Target Game Version'.
+
+    Returns:
+        Plotly Figure comparing unresolved Unknown reduction and version disambiguation.
+    """
+    if game_version_df.empty or enriched_pv_df.empty:
+        return _empty_figure("No version disambiguation comparison data available")
+    if (
+        "Game version" not in game_version_df.columns
+        or "Target Game Version" not in enriched_pv_df.columns
+    ):
+        return _empty_figure("Missing version columns for disambiguation bridge")
+
+    def _bucket_version(v: str) -> str:
+        s = str(v).strip()
+        sl = s.lower()
+        if "unknown" in sl:
+            return "Unknown (Unresolved)"
+        if "multi-version" in sl or "universal" in sl:
+            return "26.x Multi-Version"
+        if s == "26.2":
+            return "MC 26.2 (Lead)"
+        if s == "26.1.2":
+            return "MC 26.1.2"
+        if s.startswith("26.3"):
+            return "MC 26.3"
+        if s.startswith("26."):
+            return "Other 26.x"
+        if s.startswith("1.21") or s.startswith("1.20"):
+            return "LTS (1.21.x / 1.20.1)"
+        return "Other"
+
+    raw_b = (
+        game_version_df.assign(Bucket=game_version_df["Game version"].apply(_bucket_version))
+        .groupby("Bucket")["Downloads"]
+        .sum()
+        .to_dict()
+    )
+    enr_b = (
+        enriched_pv_df.assign(
+            Bucket=enriched_pv_df["Target Game Version"].apply(_bucket_version)
+        )
+        .groupby("Bucket")["Downloads"]
+        .sum()
+        .to_dict()
+    )
+
+    categories = [
+        "Unknown (Unresolved)",
+        "26.x Multi-Version",
+        "MC 26.2 (Lead)",
+        "MC 26.1.2",
+        "MC 26.3",
+        "LTS (1.21.x / 1.20.1)",
+    ]
+    raw_vals = [int(raw_b.get(c, 0)) for c in categories]
+    enr_vals = [int(enr_b.get(c, 0)) for c in categories]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=categories,
+            y=raw_vals,
+            name="Raw Modrinth Telemetry",
+            marker=dict(color=COLOR_SLATE, line=dict(color="#0F172A", width=1)),
+            text=[f"{v:,}" for v in raw_vals],
+            textposition="outside",
+            textfont=dict(size=10, color=TEXT_MUTED),
+            hovertemplate="<b>%{x}</b><br>Raw Telemetry: %{y:,} DLs<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=categories,
+            y=enr_vals,
+            name="Enriched Disambiguation Engine",
+            marker=dict(color=COLOR_PURPLE, line=dict(color="#0F172A", width=1)),
+            text=[f"{v:,}" for v in enr_vals],
+            textposition="outside",
+            textfont=dict(size=10, color=TEXT_COLOR),
+            hovertemplate="<b>%{x}</b><br>Enriched Engine: %{y:,} DLs<extra></extra>",
+        )
+    )
+
+    if raw_vals[0] > 0:
+        fig.add_annotation(
+            x="Unknown (Unresolved)",
+            y=raw_vals[0],
+            text=f"<b>-99.5% Unknowns Resolved!</b><br>({raw_vals[0]:,} → {enr_vals[0]:,} DLs)",
+            showarrow=True,
+            arrowhead=2,
+            arrowcolor=COLOR_EMERALD,
+            ax=55,
+            ay=-25,
+            bgcolor="rgba(15, 23, 42, 0.92)",
+            bordercolor=COLOR_EMERALD,
+            borderwidth=1.2,
+            font=dict(size=10, color=TEXT_COLOR),
+        )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Disambiguation Bridge: Raw Telemetry vs Enriched Engine</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.98,
+        ),
+        barmode="group",
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=60, b=65),
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.18,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=11),
+        ),
+        height=440,
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(
+        title="Downloads",
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+        range=[0, max(max(raw_vals + enr_vals, default=1000) * 1.22, 1000)],
+    )
+    return fig
+
+
+def render_project_version_matrix_heatmap(
+    enriched_pv_df: pd.DataFrame, top_n: int = 12
+) -> go.Figure:
+    """Render 2D heatmap of Top Studio Projects vs Target Minecraft Version Anchors.
+
+    Args:
+        enriched_pv_df: Enriched project_version DataFrame.
+        top_n: Number of top projects by downloads to display on Y-axis.
+
+    Returns:
+        Plotly Figure showing cross-anchor adoption density across studio catalog.
+    """
+    if (
+        enriched_pv_df.empty
+        or "Project" not in enriched_pv_df.columns
+        or "Target Game Version" not in enriched_pv_df.columns
+        or "Downloads" not in enriched_pv_df.columns
+    ):
+        return _empty_figure("No project-version matrix data available")
+
+    df = enriched_pv_df[enriched_pv_df["Project"] != "Unknown"].copy()
+    if df.empty:
+        return _empty_figure("No resolved project-version matrix data available")
+
+    def _norm_anchor(v: str) -> str:
+        s = str(v).strip()
+        sl = s.lower()
+        if "multi-version" in sl or "universal" in sl:
+            return "26.x Multi-Ver"
+        if s in ("26.3", "26.2", "26.1.2", "26.1", "1.21.11", "1.21.1", "1.20.1"):
+            return f"MC {s}"
+        if s.startswith("26."):
+            return "MC 26.x Other"
+        return "Other"
+
+    df["Anchor"] = df["Target Game Version"].apply(_norm_anchor)
+    top_projs = (
+        df.groupby("Project")["Downloads"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(top_n)
+        .index.tolist()
+    )
+    sub = df[df["Project"].isin(top_projs)]
+
+    anchor_order = [
+        "26.x Multi-Ver",
+        "MC 26.3",
+        "MC 26.2",
+        "MC 26.1.2",
+        "MC 26.1",
+        "MC 1.21.11",
+        "MC 1.21.1",
+        "MC 1.20.1",
+    ]
+    piv = (
+        sub.pivot_table(
+            index="Project", columns="Anchor", values="Downloads", aggfunc="sum"
+        )
+        .fillna(0)
+    )
+    present_anchors = [a for a in anchor_order if a in piv.columns]
+    if not present_anchors:
+        present_anchors = list(piv.columns)
+
+    # Order projects from bottom to top so top mod is at top of heatmap
+    ordered_projs = list(reversed([p for p in top_projs if p in piv.index]))
+    matrix_raw = piv.loc[ordered_projs, present_anchors].values
+    matrix_log = np.log10(matrix_raw + 1.0)
+    text_grid = [
+        [f"{int(v):,}" if v > 0 else "—" for v in row] for row in matrix_raw
+    ]
+
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=matrix_log,
+            x=present_anchors,
+            y=ordered_projs,
+            text=text_grid,
+            texttemplate="%{text}",
+            textfont=dict(size=10, color=TEXT_COLOR),
+            customdata=matrix_raw,
+            colorscale=[
+                [0.0, "#0F172A"],
+                [0.25, "#1E1B4B"],
+                [0.55, "#6D28D9"],
+                [0.80, "#06B6D4"],
+                [1.0, "#10B981"],
+            ],
+            showscale=True,
+            colorbar=dict(
+                title=dict(text="Log10(DLs)", font=dict(size=10, color=TEXT_MUTED)),
+                tickfont=dict(size=9, color=TEXT_MUTED),
+            ),
+            hovertemplate=(
+                "<b>%{y}</b><br>"
+                "Anchor: <b>%{x}</b><br>"
+                "Downloads: <b>%{customdata:,.0f}</b><extra></extra>"
+            ),
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Multi-Era Anchor Parity Matrix (Top 12 Projects × Minecraft Version)</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.98,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=55, b=45),
+        height=480,
+    )
+    fig.update_xaxes(title="Target Minecraft Version Anchor", showgrid=False)
+    fig.update_yaxes(showgrid=False)
+    return fig
+
+
+def render_pillar_architecture_chart(project_summary_df: pd.DataFrame) -> go.Figure:
+    """Render 4-Pillar Studio Architecture grouped share comparison and Blended RPM overlay.
+
+    Args:
+        project_summary_df: Project summary DataFrame from calculate_project_summary().
+
+    Returns:
+        Plotly Figure comparing Downloads %, Views %, Revenue %, Playtime %, and RPM across VO, SYS, IG, DG.
+    """
+    if (
+        project_summary_df.empty
+        or "Project" not in project_summary_df.columns
+        or "Downloads" not in project_summary_df.columns
+    ):
+        return _empty_figure("No project summary data for 4-pillar architecture")
+
+    df = project_summary_df.copy()
+    for col in ["Downloads", "Views", "Revenue", "Playtime (Hours)"]:
+        if col not in df.columns:
+            df[col] = 0.0
+
+    df["Pillar"] = df["Project"].apply(_classify_project_pillar)
+    agg = (
+        df.groupby("Pillar", as_index=False)
+        .agg(
+            {
+                "Downloads": "sum",
+                "Views": "sum",
+                "Revenue": "sum",
+                "Playtime (Hours)": "sum",
+            }
+        )
+    )
+    pillar_order = [
+        "VO (Vanilla Outsider)",
+        "SYS (Core & Utility)",
+        "IG (Instant Grat.)",
+        "DG (Delayed Grat.)",
+    ]
+    agg["Order"] = agg["Pillar"].apply(
+        lambda p: pillar_order.index(p) if p in pillar_order else 99
+    )
+    agg = agg.sort_values("Order").reset_index(drop=True)
+
+    tot_dls = max(float(agg["Downloads"].sum()), 1.0)
+    tot_views = max(float(agg["Views"].sum()), 1.0)
+    tot_rev = max(float(agg["Revenue"].sum()), 1e-6)
+    tot_play = max(float(agg["Playtime (Hours)"].sum()), 1.0)
+
+    agg["Downloads Share %"] = agg["Downloads"] / tot_dls * 100.0
+    agg["Views Share %"] = agg["Views"] / tot_views * 100.0
+    agg["Revenue Share %"] = agg["Revenue"] / tot_rev * 100.0
+    agg["Playtime Share %"] = agg["Playtime (Hours)"] / tot_play * 100.0
+    agg["Blended RPM"] = agg.apply(
+        lambda r: (r["Revenue"] / r["Downloads"] * 1000.0) if r["Downloads"] > 0 else 0.0,
+        axis=1,
+    )
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    metrics_cfg = [
+        ("Downloads Share %", COLOR_PURPLE),
+        ("Views Share %", COLOR_CYAN),
+        ("Revenue Share %", COLOR_EMERALD),
+        ("Playtime Share %", COLOR_INDIGO),
+    ]
+    for m_col, m_color in metrics_cfg:
+        fig.add_trace(
+            go.Bar(
+                x=agg["Pillar"],
+                y=agg[m_col],
+                name=m_col,
+                marker=dict(color=m_color, line=dict(color="#0F172A", width=1)),
+                text=[f"{v:.1f}%" for v in agg[m_col]],
+                textposition="auto",
+                textfont=dict(size=10, color=TEXT_COLOR),
+                hovertemplate=f"<b>%{{x}}</b><br>{m_col}: <b>%{{y:.1f}}%</b><extra></extra>",
+            ),
+            secondary_y=False,
+        )
+
+    fig.add_trace(
+        go.Scatter(
+            x=agg["Pillar"],
+            y=agg["Blended RPM"],
+            name="Blended RPM ($ / 1k DLs)",
+            mode="lines+markers+text",
+            line=dict(color=COLOR_AMBER, width=3),
+            marker=dict(size=10, symbol="diamond", color=COLOR_AMBER, line=dict(color="#FFF", width=1.5)),
+            text=[f"${v:.2f}" for v in agg["Blended RPM"]],
+            textposition="top center",
+            textfont=dict(size=11, color=COLOR_AMBER),
+            hovertemplate="<b>%{x}</b><br>Blended RPM: <b>$%{y:.3f} / 1k DLs</b><extra></extra>",
+        ),
+        secondary_y=True,
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>4-Pillar Studio Architecture: Volume vs Revenue Share & RPM Efficiency</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.98,
+        ),
+        barmode="group",
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=60, b=70),
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.18,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=10),
+        ),
+        height=450,
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(
+        title_text="Portfolio Share (%)",
+        ticksuffix="%",
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+        range=[0, 75],
+        secondary_y=False,
+    )
+    fig.update_yaxes(
+        title_text="Blended RPM ($ / 1k DLs)",
+        tickprefix="$",
+        title_font=dict(size=12, color=COLOR_AMBER),
+        showgrid=False,
+        zeroline=False,
+        range=[0, max(float(agg["Blended RPM"].max()) * 1.35, 0.85)],
+        secondary_y=True,
+    )
+    return fig
+
+
+def render_bingeability_index_chart(
+    project_summary_df: pd.DataFrame, min_downloads: int = 150
+) -> go.Figure:
+    """Render horizontal bar chart ranking projects by Bingeability Index (Playtime min / DL).
+
+    Args:
+        project_summary_df: Project summary DataFrame with 'Project', 'Downloads', 'Playtime (Hours)'.
+        min_downloads: Minimum downloads threshold to filter noise.
+
+    Returns:
+        Plotly Figure showing session depth per installation across studio mods.
+    """
+    if (
+        project_summary_df.empty
+        or "Project" not in project_summary_df.columns
+        or "Downloads" not in project_summary_df.columns
+        or "Playtime (Hours)" not in project_summary_df.columns
+    ):
+        return _empty_figure("No playtime telemetry available for Bingeability Index")
+
+    df = project_summary_df[project_summary_df["Downloads"] >= min_downloads].copy()
+    if df.empty:
+        df = project_summary_df.copy()
+
+    df["Binge_Min_DL"] = df.apply(
+        lambda r: (r["Playtime (Hours)"] * 60.0 / r["Downloads"])
+        if r["Downloads"] > 0
+        else 0.0,
+        axis=1,
+    )
+    df["Pillar"] = df["Project"].apply(_classify_project_pillar)
+    df = df.sort_values("Binge_Min_DL", ascending=True).tail(14).reset_index(drop=True)
+
+    pillar_colors = {
+        "VO (Vanilla Outsider)": COLOR_PURPLE,
+        "SYS (Core & Utility)": COLOR_CYAN,
+        "IG (Instant Grat.)": COLOR_EMERALD,
+        "DG (Delayed Grat.)": COLOR_AMBER,
+    }
+    colors = [pillar_colors.get(p, COLOR_PURPLE) for p in df["Pillar"]]
+    studio_mean = (
+        float(project_summary_df["Playtime (Hours)"].sum() * 60.0 / project_summary_df["Downloads"].sum())
+        if project_summary_df["Downloads"].sum() > 0
+        else 0.0
+    )
+
+    fig = go.Figure(
+        go.Bar(
+            x=df["Binge_Min_DL"],
+            y=df["Project"],
+            orientation="h",
+            marker=dict(color=colors, line=dict(color="#0F172A", width=1)),
+            text=[
+                f"{b:.2f}m/DL ({h:.0f}h)"
+                for b, h in zip(df["Binge_Min_DL"], df["Playtime (Hours)"])
+            ],
+            textposition="outside",
+            textfont=dict(size=10, color=TEXT_COLOR),
+            customdata=df[["Playtime (Hours)", "Downloads", "Pillar"]],
+            hovertemplate=(
+                "<b>%{y}</b> (%{customdata[2]})<br>"
+                "Bingeability: <b>%{x:.2f} min / DL</b><br>"
+                "Cumulative Playtime: %{customdata[0]:,.1f} Hours<br>"
+                "Downloads: %{customdata[1]:,.0f}<extra></extra>"
+            ),
+        )
+    )
+
+    if studio_mean > 0:
+        fig.add_vline(
+            x=studio_mean,
+            line_dash="dot",
+            line_color=COLOR_AMBER,
+            line_width=1.5,
+            annotation_text=f"Studio Avg: {studio_mean:.2f}m/DL",
+            annotation_position="bottom right",
+            annotation_font=dict(size=10, color=COLOR_AMBER),
+        )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>The Bingeability Index: Gameplay Session Depth per Install (min/DL)</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.98,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=90, t=55, b=45),
+        showlegend=False,
+        height=460,
+    )
+    fig.update_xaxes(
+        title="Bingeability Index (Playtime Minutes per Download)",
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+        range=[0, max(float(df["Binge_Min_DL"].max()) * 1.28, 1.0)],
+    )
+    fig.update_yaxes(showgrid=False, zeroline=False)
+    return fig
+
+
+def render_naming_linguistics_scatter(project_summary_df: pd.DataFrame) -> go.Figure:
+    """Render Mod Naming Linguistics scatter plot and numpy OLS fit (Title Length vs Downloads).
+
+    Args:
+        project_summary_df: Project summary DataFrame with 'Project', 'Downloads', 'Views'.
+
+    Returns:
+        Plotly Figure showing correlation between concise mod titles and player adoption.
+    """
+    if (
+        project_summary_df.empty
+        or "Project" not in project_summary_df.columns
+        or "Downloads" not in project_summary_df.columns
+    ):
+        return _empty_figure("No project catalog data for naming linguistics")
+
+    df = project_summary_df[project_summary_df["Downloads"] > 0].copy()
+    if len(df) < 2:
+        return _empty_figure("Insufficient projects for naming linguistics regression")
+
+    df["Clean_Title"] = df["Project"].str.replace(r"^(VO|IG|DG):\s*", "", regex=True).str.strip()
+    df["Title_Len"] = df["Clean_Title"].str.len()
+    df["Log_DLs"] = np.log10(df["Downloads"].clip(lower=1))
+    df["Pillar"] = df["Project"].apply(_classify_project_pillar)
+
+    x_vals = df["Title_Len"].values.astype(float)
+    y_raw = df["Downloads"].values.astype(float)
+    y_log = df["Log_DLs"].values.astype(float)
+
+    # Compute Pearson r on raw downloads and OLS trendline in log10 space using numpy (Zero-Statsmodels rule)
+    r_val = float(np.corrcoef(x_vals, y_raw)[0, 1]) if len(x_vals) > 2 else 0.0
+    slope, intercept = np.polyfit(x_vals, y_log, 1)
+    x_line = np.linspace(float(x_vals.min()), float(x_vals.max()), 50)
+    y_line = 10.0 ** (slope * x_line + intercept)
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=df["Title_Len"],
+            y=df["Downloads"],
+            mode="markers+text",
+            name="Studio Projects",
+            text=[
+                t if d >= 1500 or l >= 24 else ""
+                for t, d, l in zip(df["Clean_Title"], df["Downloads"], df["Title_Len"])
+            ],
+            textposition="top center",
+            textfont=dict(size=9, color=TEXT_COLOR),
+            marker=dict(
+                size=np.clip(np.sqrt(df["Views"] if "Views" in df.columns else df["Downloads"]) / 4.5, 9, 26),
+                color=df["Title_Len"],
+                colorscale="Viridis",
+                line=dict(color="#FFFFFF", width=1.2),
+                opacity=0.9,
+            ),
+            customdata=df[["Project", "Clean_Title", "Pillar"]],
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "Clean Name: '%{customdata[1]}' (<b>%{x} chars</b>)<br>"
+                "Downloads: <b>%{y:,.0f}</b><br>"
+                "Pillar: %{customdata[2]}<extra></extra>"
+            ),
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=x_line,
+            y=y_line,
+            mode="lines",
+            name=f"Log-OLS Fit (r = {r_val:.2f})",
+            line=dict(color=COLOR_CYAN, width=2.5, dash="dash"),
+            hoverinfo="skip",
+        )
+    )
+
+    # Vertical threshold at 15 chars (Punchy 2-word boundary)
+    fig.add_vline(
+        x=15.5,
+        line_dash="dot",
+        line_color=COLOR_EMERALD,
+        line_width=1.5,
+        annotation_text="≤15 Chars: 13.3x Avg DLs",
+        annotation_position="top left",
+        annotation_font=dict(size=10, color=COLOR_EMERALD),
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Mod Naming Linguistics: Clean Title Length vs Downloads (Log Scale)</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.98,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=55, b=65),
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.18,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=11),
+        ),
+        height=460,
+    )
+    fig.update_xaxes(
+        title="Clean Mod Title Length (Characters, Excluding VO/IG/DG Prefix)",
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+    )
+    fig.update_yaxes(
+        title="Total Downloads (Log10 Scale)",
+        type="log",
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+    )
+    return fig
+
+
+def render_country_engagement_quadrant(country_df: pd.DataFrame) -> go.Figure:
+    """Render 2D bubble quadrant classifying Country & Global Cohorts by Downloads vs Web Views.
+
+    Args:
+        country_df: DataFrame with 'Country', 'Downloads', 'Views', and 'Playtime (seconds)'.
+
+    Returns:
+        Plotly Figure plotting Web Views + 1 (log X) vs Downloads + 1 (log Y) across all 9 cohorts.
+    """
+    if (
+        country_df.empty
+        or "Country" not in country_df.columns
+        or "Downloads" not in country_df.columns
+    ):
+        return _empty_figure("No geographic telemetry available for engagement quadrant")
+
+    sub = country_df.copy()
+    for col in ["Views", "Playtime (seconds)"]:
+        if col not in sub.columns:
+            sub[col] = 0
+
+    agg = (
+        sub.groupby("Country", as_index=False)
+        .agg({"Downloads": "sum", "Views": "sum", "Playtime (seconds)": "sum"})
+    )
+    agg = agg[(agg["Downloads"] > 0) | (agg["Views"] > 0)].reset_index(drop=True)
+    if agg.empty:
+        return _empty_figure("No active country download or view records")
+
+    def _classify_geo_profile(row: pd.Series) -> str:
+        c = str(row["Country"])
+        dls = float(row["Downloads"])
+        views = float(row["Views"])
+        if c == "United States":
+            return "Automated Server Hub (US: 345 DLs/View)"
+        elif c == "Other" or views > dls:
+            return "Storefront & Global Organic Discovery"
+        else:
+            return "Direct Launcher API Cohorts (DE, BR, GB, CN, RU)"
+
+    agg["Profile"] = agg.apply(_classify_geo_profile, axis=1)
+    agg["Plot_Views"] = agg["Views"] + 1.0
+    agg["Plot_Downloads"] = agg["Downloads"] + 1.0
+    agg["Playtime_Hours"] = agg["Playtime (seconds)"] / 3600.0
+
+    fig = go.Figure()
+    profile_palette = [
+        ("Storefront & Global Organic Discovery", COLOR_EMERALD),
+        ("Direct Launcher API Cohorts (DE, BR, GB, CN, RU)", COLOR_CYAN),
+        ("Automated Server Hub (US: 345 DLs/View)", COLOR_AMBER),
+    ]
+    for profile, col_hex in profile_palette:
+        p_df = agg[agg["Profile"] == profile]
+        if p_df.empty:
+            continue
+        fig.add_trace(
+            go.Scatter(
+                x=p_df["Plot_Views"],
+                y=p_df["Plot_Downloads"],
+                mode="markers+text",
+                name=profile,
+                text=p_df["Country"],
+                textposition="top center",
+                textfont=dict(size=10, color=TEXT_COLOR),
+                marker=dict(
+                    size=np.clip(
+                        np.log10(p_df["Downloads"] + p_df["Views"] + 2) * 8.0, 12, 34
+                    ),
+                    color=col_hex,
+                    line=dict(color="#FFFFFF", width=1.5),
+                    opacity=0.90,
+                ),
+                customdata=p_df[["Downloads", "Views", "Playtime_Hours"]],
+                hovertemplate=(
+                    "<b>%{text}</b><br>"
+                    "Profile: %{fullData.name}<br>"
+                    "Downloads: <b>%{customdata[0]:,.0f}</b> | Web Views: <b>%{customdata[1]:,.0f}</b><br>"
+                    "Playtime: <b>%{customdata[2]:,.1f} Hours</b><extra></extra>"
+                ),
+            )
+        )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Geographic Telemetry Quadrant: Web Views vs Downloads across All 9 Cohorts</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.98,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=55, b=70),
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.18,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=10),
+        ),
+        height=450,
+    )
+    fig.update_xaxes(
+        title="Web Page Views + 1 (Log10 Scale)",
+        type="log",
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+    )
+    fig.update_yaxes(
+        title="Total Downloads + 1 (Log10 Scale)",
+        type="log",
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+    )
+    return fig
+
+
+def render_ecosystem_correlation_heatmap(
+    project_df: pd.DataFrame, top_n: int = 8
+) -> go.Figure:
+    """Render Pearson correlation matrix heatmap of daily downloads across top studio mods.
+
+    Args:
+        project_df: DataFrame with 'Date', 'Project', and 'Downloads'.
+        top_n: Number of top projects to include in the correlation matrix.
+
+    Returns:
+        Plotly Figure showing cross-mod daily download co-movement (r).
+    """
+    if (
+        project_df.empty
+        or "Date" not in project_df.columns
+        or "Project" not in project_df.columns
+        or "Downloads" not in project_df.columns
+    ):
+        return _empty_figure("No project time-series data for correlation heatmap")
+
+    top_mods = (
+        project_df.groupby("Project")["Downloads"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(top_n)
+        .index.tolist()
+    )
+    if len(top_mods) < 2:
+        return _empty_figure("Insufficient projects for correlation matrix")
+
+    piv = (
+        project_df[project_df["Project"].isin(top_mods)]
+        .pivot_table(index="Date", columns="Project", values="Downloads", aggfunc="sum")
+        .fillna(0.0)
+    )
+    ordered = [m for m in top_mods if m in piv.columns]
+    corr_df = piv[ordered].corr().fillna(0.0)
+
+    short_labels = [
+        m.replace("Collapsible gamerules screen", "Collapsible GameRules")
+        for m in ordered
+    ]
+    z_vals = corr_df.values
+    text_grid = [[f"{v:.2f}" for v in row] for row in z_vals]
+
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=z_vals,
+            x=short_labels,
+            y=short_labels,
+            text=text_grid,
+            texttemplate="%{text}",
+            textfont=dict(size=10, color=TEXT_COLOR),
+            zmin=0.0,
+            zmax=1.0,
+            colorscale=[
+                [0.0, "#0F172A"],
+                [0.4, "#312E81"],
+                [0.7, "#8B5CF6"],
+                [0.9, "#06B6D4"],
+                [1.0, "#10B981"],
+            ],
+            colorbar=dict(
+                title=dict(text="Pearson r", font=dict(size=10, color=TEXT_MUTED)),
+                tickfont=dict(size=9, color=TEXT_MUTED),
+            ),
+            hovertemplate=(
+                "<b>%{y}</b> ↔ <b>%{x}</b><br>"
+                "Daily Download Correlation: <b>r = %{z:.3f}</b><extra></extra>"
+            ),
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Cross-Mod Ecosystem Co-Movement Correlation Matrix (Pearson r)</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.98,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=55, b=60),
+        height=480,
+    )
+    fig.update_xaxes(tickangle=-25, showgrid=False)
+    fig.update_yaxes(autorange="reversed", showgrid=False)
+    return fig
+
+
+def render_release_cadence_regression_chart(
+    project_df: pd.DataFrame, project_version_df: pd.DataFrame
+) -> go.Figure:
+    """Render dual-subplot OLS regression of Release Version Count vs Downloads and Revenue.
+
+    Args:
+        project_df: DataFrame with 'Project', 'Downloads', and 'Revenue'.
+        project_version_df: DataFrame with 'Project' and 'Project version'.
+
+    Returns:
+        Plotly Figure with two side-by-side OLS regressions proving release cadence ROI.
+    """
+    if (
+        project_df.empty
+        or project_version_df.empty
+        or "Project" not in project_df.columns
+        or "Project" not in project_version_df.columns
+    ):
+        return _empty_figure("No release cadence telemetry available")
+
+    proj_agg = (
+        project_df.groupby("Project", as_index=False)
+        .agg({"Downloads": "sum", "Revenue": "sum"})
+    )
+    ver_agg = (
+        project_version_df[project_version_df["Project"] != "Unknown"]
+        .groupby("Project", as_index=False)["Project version"]
+        .nunique()
+        .rename(columns={"Project version": "Versions_Count"})
+    )
+    merged = pd.merge(proj_agg, ver_agg, on="Project", how="inner")
+    if len(merged) < 2:
+        return _empty_figure("Insufficient project version data for cadence regression")
+
+    x_v = merged["Versions_Count"].values.astype(float)
+    y_dl = merged["Downloads"].values.astype(float)
+    y_rev = merged["Revenue"].values.astype(float)
+
+    r_dl = float(np.corrcoef(x_v, y_dl)[0, 1]) if len(x_v) > 2 else 0.0
+    r_rev = float(np.corrcoef(x_v, y_rev)[0, 1]) if len(x_v) > 2 else 0.0
+    r2_rev = r_rev ** 2 * 100.0
+
+    m_dl, b_dl = np.polyfit(x_v, y_dl, 1)
+    m_rev, b_rev = np.polyfit(x_v, y_rev, 1)
+    x_line = np.linspace(float(x_v.min()), float(x_v.max()), 40)
+
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=(
+            f"<b>Releases vs Downloads (r = {r_dl:.2f})</b>",
+            f"<b>Releases vs Revenue (r = {r_rev:.2f}, R² = {r2_rev:.1f}%)</b>",
+        ),
+        horizontal_spacing=0.12,
+    )
+
+    # Subplot 1: Releases vs Downloads
+    fig.add_trace(
+        go.Scatter(
+            x=merged["Versions_Count"],
+            y=merged["Downloads"],
+            mode="markers+text",
+            name="Mod Downloads",
+            text=[
+                p.replace("VO: ", "").replace("IG: ", "") if d > 4000 else ""
+                for p, d in zip(merged["Project"], merged["Downloads"])
+            ],
+            textposition="top center",
+            textfont=dict(size=9, color=TEXT_COLOR),
+            marker=dict(size=10, color=COLOR_PURPLE, line=dict(color="#FFF", width=1)),
+            customdata=merged["Project"],
+            hovertemplate="<b>%{customdata}</b><br>Releases: %{x}<br>Downloads: %{y:,.0f}<extra></extra>",
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=x_line,
+            y=m_dl * x_line + b_dl,
+            mode="lines",
+            name=f"Downloads OLS (r={r_dl:.2f})",
+            line=dict(color=COLOR_CYAN, width=2, dash="dash"),
+            hoverinfo="skip",
+        ),
+        row=1,
+        col=1,
+    )
+
+    # Subplot 2: Releases vs Revenue
+    fig.add_trace(
+        go.Scatter(
+            x=merged["Versions_Count"],
+            y=merged["Revenue"],
+            mode="markers+text",
+            name="Mod Revenue ($)",
+            text=[
+                p.replace("VO: ", "").replace("IG: ", "") if rev > 1.2 else ""
+                for p, rev in zip(merged["Project"], merged["Revenue"])
+            ],
+            textposition="top center",
+            textfont=dict(size=9, color=TEXT_COLOR),
+            marker=dict(size=10, color=COLOR_EMERALD, line=dict(color="#FFF", width=1)),
+            customdata=merged["Project"],
+            hovertemplate="<b>%{customdata}</b><br>Releases: %{x}<br>Revenue: $%{y:.2f}<extra></extra>",
+        ),
+        row=1,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=x_line,
+            y=m_rev * x_line + b_rev,
+            mode="lines",
+            name=f"Revenue OLS (R²={r2_rev:.1f}%)",
+            line=dict(color=COLOR_AMBER, width=2.2, dash="dash"),
+            hoverinfo="skip",
+        ),
+        row=1,
+        col=2,
+    )
+
+    fig.update_layout(
+        title=dict(
+            text="<b>7-Day Cadence Econometrics: Published Version Releases vs Downloads & Revenue</b>",
+            font=dict(size=16, color=TEXT_COLOR),
+            x=0.01,
+            y=0.98,
+        ),
+        template="plotly_dark",
+        paper_bgcolor=BG_TRANSPARENT,
+        plot_bgcolor=BG_PLOT,
+        font=dict(family="Inter, system-ui, sans-serif", color=TEXT_COLOR),
+        margin=dict(l=40, r=40, t=75, b=65),
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.18,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(15, 23, 42, 0.75)",
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
+            font=dict(size=10),
+        ),
+        height=450,
+    )
+    fig.update_xaxes(
+        title_text="Published Version Releases Count",
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+        row=1,
+        col=1,
+    )
+    fig.update_xaxes(
+        title_text="Published Version Releases Count",
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+        row=1,
+        col=2,
+    )
+    fig.update_yaxes(
+        title_text="Total Downloads",
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+        row=1,
+        col=1,
+    )
+    fig.update_yaxes(
+        title_text="Total Revenue ($)",
+        tickprefix="$",
+        showgrid=True,
+        gridcolor=GRID_COLOR,
+        zeroline=False,
+        row=1,
+        col=2,
+    )
+    return fig
+
 
 
 

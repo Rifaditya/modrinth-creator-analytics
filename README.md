@@ -45,7 +45,8 @@ Over the **178-day historical observation window** (April 16, 2026 – October 1
 ### 💰 Tab 1: Revenue Economics, Rolling RPM & Milestone Forecaster
 - **Dual-RPM & View-Based Monetization**: Breaks down the revenue funnel into **Blended RPM** ($0.29 / 1,000 downloads) and **Monetized RPM** ($2.95 / 1,000 eligible downloads), complemented by **View-Based Monetization** ($1.17 per 1,000 monetized views) reflecting verified ad impressions on creator project pages. Non-monetized downloads (90.1%) represent launcher updates, background syncs, and direct API pulls where impressions are not served.
 - **Rolling Trailing-30D RPM Dynamics**: Computes 30-day moving window blended and monetized RPMs over time to capture longitudinal monetization momentum beyond static lifetime averages.
-- **Daily Financial Trendlines**: Dual-axis Plotly visualization correlating daily net earnings ($) against daily download velocity.
+- **Daily Financial Trendlines + 7D Rolling Overlay & Range Selector**: Dual-axis Plotly visualization correlating daily net earnings ($), 7-day rolling mean trendlines, peak callout badges, and interactive `1M` / `3M` / `All` range buttons.
+- **Monthly Revenue Attribution by Flagship Mod**: Stacked monthly revenue decomposition attributing dollar earnings across *VO: Better Dogs*, *Dasik Library*, *IG: Item Clumps*, *VO: True Sleep*, *VO: Agrarian Reform*, and the long-tail catalog.
 - **Interactive Milestone Forecasting Calculator**: Dynamic slider projecting estimated days, daily run-rates, and download targets required to achieve creator milestones ($50, $100, $250, $500, etc.).
 - **Streamer Privacy Mode & Pre-Tracking Baseline**: Sidebar toggles to instantly mask revenue figures (`$••••`) for public streaming, and exclude the April 16–30 pre-tracking baseline where dimension telemetry was unrecorded by Modrinth to focus on active logging from May 1 onward.
 
@@ -54,22 +55,25 @@ Over the **178-day historical observation window** (April 16, 2026 – October 1
 - **Standalone vs Ecosystem Distribution**: Quantifies direct player intent (72,195 direct downloads) vs secondary modpack bundle syndication (28,031 downloads).
 - **Download Intent Dynamics (100% Normalized)**: Tracks monthly acquisition mix across Standalone (21% -> 29%), Version Update (8% -> 18.8% peak in Aug), and Modpack Ingestion (21.2% surge in Sep).
 - **Dependency Flywheel Analysis**: Decomposes dependency downloads into Internal Studio Pull-Through (13,361 DLs / 62.4%) vs External Modpacks (8,067 DLs / 37.6% via *Sensible MC* and *Legacies*).
+- **Longitudinal Launcher & Modpack Virality Timelines**: Weekly stacked launcher evolution and viral step-function curves tracking when *Sensible MC*, *Legacies*, and *The Vanilla Experience* ingested studio mods.
 
 ### 🎮 Tab 3: Minecraft Demographics & Disambiguation Engine
 - **Sovereign Lead Anchor (MC 26.2)**: Tracks sovereign generational adoption leading studio releases.
 - **Multi-Era Anchor Parity & Dwell-Time Index**: Quantifies that players on legacy LTS versions (**MC 1.21.1: 2.49 min/DL**, **MC 1.20.1: 1.51 min/DL**) exhibit **2.3x higher stickiness** than modern rapid releases (**MC 26.2: 1.09 min/DL**), providing quantitative proof for sustaining multi-era backports.
-- **The Enriched Disambiguation Engine**: Modrinth's raw telemetry leaves **38,775 downloads** categorized as "Unknown" due to headless launcher API queries and the April 16–30 pre-tracking baseline. Our custom enrichment engine cross-references file hash fingerprints and version metadata against `data/modrinth_version_catalog.json` to resolve **99.82%** of all version downloads into their true Minecraft targets.
-- **Side-by-Side Verification**: Toggle between **Enriched Engine** and **Raw Telemetry** to audit the exact disambiguation uplift.
+- **The Enriched Disambiguation Engine & Side-by-Side Bridge Chart**: Modrinth's raw telemetry leaves **38,775 downloads** categorized as "Unknown" due to headless launcher API queries and the April 16–30 pre-tracking baseline. Our custom enrichment engine cross-references file hash fingerprints and version metadata against `data/modrinth_version_catalog.json` to resolve **99.82%** of all version downloads into their true Minecraft targets, visualized directly via a side-by-side Disambiguation Bridge chart.
+- **Multi-Era Anchor Parity Matrix Heatmap**: 2D log-scaled matrix plotting the top 12 studio mods across all active Minecraft version anchors (`26.x Multi-Ver`, `MC 26.3`, `MC 26.2`, `MC 26.1.2`, `MC 1.21.11`, `MC 1.21.1`, `MC 1.20.1`).
 
 ### 📦 Tab 4: Projects & Modpack Ecosystem Matrix
 - **Full Catalog Matrix**: Interactive, sortable leaderboard ranking all 21 studio projects by total downloads, views, revenue, conversion rates, playtime, and **Downloads per View (x)**.
 - **Portfolio Monetization Quadrant**: Bubble chart plotting Download Share % vs Revenue Share % against the $y=x$ parity line, spotlighting high-yield flagships (**VO: Better Dogs**, 38.4% rev from 31.0% DLs, $0.364 RPM) vs volume engines (**Dasik Library**, 21.3% rev from 41.1% DLs, $0.152 RPM).
+- **4-Pillar Studio Architecture Breakdown**: Compares `VO (Vanilla Outsider)`, `SYS (Core & Utility)`, `IG (Instant Gratification)`, and `DG (Delayed Gratification)` across Downloads Share %, Views Share %, Revenue Share %, Playtime Share %, and Blended RPM ($).
+- **The Bingeability Index & Mod Naming Linguistics**: Ranks projects by gameplay session depth per install (`Minutes / DL`) and runs a Log-OLS regression proving that concise mod titles ($\le 15$ characters) command a **13.3x download advantage**.
 - **Third-Party Modpack Virality**: Tracks dependent project adoption, revealing organic syndication through curated modpacks like **Sensible MC** and **Legacies**.
-- **Single Mod Deep-Dive Inspector**: Dedicated sub-view allowing creators to isolate a single project and inspect its version distribution, download reasons, and monetization performance.
+- **Single Mod Deep-Dive Inspector**: Dedicated sub-view allowing creators to isolate a single project and inspect its daily velocity, 7-day rolling trend, cumulative growth S-curve, and anchor-colored version adoption.
 
 ### 🌍 Tab 5: Global Geography & Telemetry Analytics
 - **World Choropleth Map**: Interactive choropleth visualizer rendering geographic distribution across **8 sovereign nations** (US, Germany, Brazil, UK, China, Russia, Indonesia, Singapore) + Other.
-- **US Headless Telemetry Diagnostic**: Explains why the United States records 20,381 downloads with only 59 web views (345.4 DLs/view) and 0.03 min playtime/DL by attributing it to automated modpack server syncs.
+- **US Headless Telemetry Diagnostic & Country Engagement Quadrant**: Explains why the United States records 20,381 downloads with only 59 web views (345.4 DLs/view) and 0.03 min playtime/DL by attributing it to automated modpack server syncs, accompanied by a 2D log-bubble quadrant separating Organic Human Discovery markets from Automated Server Hubs.
 - **Dual Display Metrics**: Toggle between **Total Downloads** and **Cumulative Playtime (Hours)** to analyze player engagement depth.
 - **High-Contrast Logarithmic Scaling**: Optional logarithmic color normalization to prevent dominant nations from flattening international gradients.
 
@@ -79,6 +83,7 @@ Over the **178-day historical observation window** (April 16, 2026 – October 1
 - **Version Adoption Velocity & Migration Lag (B10)**: Contrasts automated 1-day library dependency adoption vs 5-day human content mod discovery waves.
 - **Portfolio Pareto & Lorenz Concentration (B11)**: Lorenz curve and Gini/HHI index confirming an **HHI of 2,731** (top 2 mods drive 72.0% volume).
 - **Growth Waterfall Decomposition (B12)**: Monthly contribution waterfall deconstructing growth from April baseline (+1.2k) to October MTD (+19.9k) reaching **100,226 total downloads**.
+- **Cross-Mod Ecosystem Correlation Heatmap & Release Cadence Econometrics**: Symmetric $8 \times 8$ Pearson correlation matrix proving daily download lockstep with *Dasik Library* ($r = 0.79\text{--}0.90$), paired with dual OLS regressions proving that published version count explains **81.3% of creator revenue variance ($r = 0.90, R^2 = 81.3\%$)**.
 - **Senior Data Analyst Inquiries & Hypotheses**: Interactive analytical inquiry cards at the base of each tab guiding strategic creator decision-making.
 
 ---
